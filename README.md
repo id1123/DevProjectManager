@@ -1,8 +1,8 @@
 # Project Hub
 
-本地开发项目管理器（`0.6.0-alpha`）。它把相关代码按“业务项目 → 项目”组织起来，集中保存项目路径、标签和 IDE 启动配置，适合在本机快速找到并打开 API、Web、App 或其他代码项目。
+本地开发项目管理器（`0.6.1`）。它把相关代码按“业务项目 → 项目”组织起来，集中保存项目路径、标签和 IDE 启动配置，适合在本机快速找到并打开 API、Web、App 或其他代码项目。
 
-> 当前为 Alpha 版本，适合个人或小范围试用。数据和启动配置均保存在本机；尚未承诺跨设备同步、团队协作或生产环境级别的迁移兼容性。
+> 当前为早期版本，适合个人或小范围使用。数据和启动配置均保存在本机；尚未承诺跨设备同步、团队协作或生产环境级别的迁移兼容性。
 
 ## 当前功能
 
@@ -67,14 +67,14 @@ macOS 安装包需要在 macOS 上构建；正式分发时还需要按目标平�
 
 ## 发布与应用内更新
 
-应用内更新从 GitHub Releases 获取版本信息和安装包。发布新版本时，先更新 `src-tauri/tauri.conf.json` 中的版本号并提交，再推送一个版本 tag（例如 `0.6alpha` 或 `v0.6.0`）；`.github/workflows/release.yml` 会在 Windows runner 上自动构建 NSIS 安装包、生成 updater manifest，并创建 GitHub Release。也可以在 GitHub Actions 页面手动运行该工作流，并填写要发布的 tag。
+应用内更新从 GitHub Releases 获取版本信息和安装包。发布新版本时，先更新 `src-tauri/tauri.conf.json` 中的版本号并提交，再推送一个版本 tag（例如 `0.6.1` 或 `v0.6.1`）；`.github/workflows/release.yml` 会在 Windows runner 上自动构建 NSIS 安装包、生成 updater manifest，并创建 GitHub Release。也可以在 GitHub Actions 页面手动运行该工作流，并填写要发布的 tag。
 
 仓库的 Actions Secrets 需要配置更新签名密钥：
 
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（仅当私钥设置了密码时需要）
 
-对应的公钥写入 `src-tauri/tauri.conf.json` 的 updater 配置中。私钥只应保存在本机安全位置和 GitHub Actions Secrets，绝不能提交到仓库、README 或 Release 附件。GitHub Actions 使用仓库自带的 `GITHUB_TOKEN` 创建 Release；当前 Alpha 版本只发布 NSIS 包，以避免 MSI 对预发布版本号格式的限制。Release 保持为 GitHub 的正式 Release（版本号仍带 `alpha`），这样固定的 `/releases/latest/download/latest.json` 地址才能持续提供最新更新清单。
+对应的公钥写入 `src-tauri/tauri.conf.json` 的 updater 配置中。私钥只应保存在本机安全位置和 GitHub Actions Secrets，绝不能提交到仓库、README 或 Release 附件。GitHub Actions 使用仓库自带的 `GITHUB_TOKEN` 创建 Release；当前只发布 NSIS 包，以保持 Windows 安装与应用内更新流程一致。Release 保持为 GitHub 的正式 Release，这样固定的 `/releases/latest/download/latest.json` 地址才能持续提供最新更新清单。
 
 ## 数据位置与安全
 
@@ -82,9 +82,9 @@ SQLite 数据库文件名为 `dev-project-manager.sqlite3`，保存在操作系�
 
 启动配置和导出的 JSON 文件可能包含本机路径、命令及参数，请按本地配置文件对待，不要把敏感路径或凭据提交到公开仓库。应用不会把这些数据自动上传到远程服务。
 
-## Alpha 说明
+## 版本说明
 
-当前为 `0.6.0-alpha`，主要验证本地项目管理、标签筛选、最近打开、托盘运行和应用内更新流程。升级前建议备份导出的 JSON 配置；数据库结构、配置格式和 UI 仍可能在后续版本调整。
+当前为 `0.6.1`，已覆盖本地项目管理、标签筛选、最近打开、托盘运行和应用内更新流程。升级前建议备份导出的 JSON 配置；数据库结构、配置格式和 UI 仍可能在后续版本调整。
 
 ## 许可证
 
