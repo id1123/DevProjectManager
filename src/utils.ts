@@ -1,4 +1,5 @@
 import Fuse from "fuse.js";
+import { pinyin } from "pinyin-pro";
 import type {
   IdeDefinition,
   IdeInstallation,
@@ -80,7 +81,16 @@ export function searchLauncherItems(items: LauncherItem[], query: string) {
   const exactNameMatches = items.filter((item) => item.module.name.trim().toLocaleLowerCase() === normalized);
   if (exactNameMatches.length) return sortLauncherItems(exactNameMatches);
 
-  const nameMatches = items.filter((item) => item.module.name.toLocaleLowerCase().includes(normalized));
+  // Search module names in both Chinese and pinyin. Keep the name-match
+  // boundary decisive so a matching module is not accompanied by its
+  // siblings merely because they share a parent path, IDE, or tags.
+  const nameMatches = items.filter((item) => {
+    const name = item.module.name.toLocaleLowerCase();
+    if (name.includes(normalized)) return true;
+    const forms = pinyinNameForms(item.module.name);
+    const pinyinQuery = compactLatinQuery(normalized);
+    return pinyinQuery.length > 0 && forms.some((form) => form.includes(pinyinQuery));
+  });
   if (nameMatches.length) return sortLauncherItems(nameMatches);
 
   const fuse = new Fuse(items, {
@@ -91,6 +101,17 @@ export function searchLauncherItems(items: LauncherItem[], query: string) {
   const searchableValues = (item: LauncherItem) => [item.module.description ?? "", item.module.moduleType, item.ide?.name ?? "", item.module.path?.path ?? "", ...item.module.tags].map((value) => value.toLocaleLowerCase());
   const directMatches = items.filter((item) => searchableValues(item).some((value) => value.includes(normalized)));
   return sortLauncherItems(directMatches.length ? directMatches : fuse.search(normalized).map((result) => result.item));
+}
+
+/** Return the full and initial pinyin forms used by launcher name search. */
+export function pinyinNameForms(name: string) {
+  const full = pinyin(name, { toneType: "none" }).replace(/\s+/g, "").toLocaleLowerCase();
+  const initials = pinyin(name, { toneType: "none", pattern: "first" }).replace(/\s+/g, "").toLocaleLowerCase();
+  return [...new Set([full, initials].filter(Boolean))];
+}
+
+function compactLatinQuery(query: string) {
+  return query.replace(/[\s-]+/g, "");
 }
 
 function sortLauncherItems(items: LauncherItem[]) {

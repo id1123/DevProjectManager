@@ -7,7 +7,7 @@ use database::AppState;
 use models::*;
 use std::str::FromStr;
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent,
 };
@@ -49,6 +49,8 @@ const TRAY_ID: &str = "main-tray";
 const TRAY_OPEN_MAIN: &str = "tray-open-main";
 const TRAY_QUIT: &str = "tray-quit";
 const TRAY_RECENT_PREFIX: &str = "tray-recent-";
+const TRAY_BUSINESS_PREFIX: &str = "tray-business-";
+const TRAY_PROJECT_PREFIX: &str = "tray-project-";
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -58,7 +60,7 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, String> {
-    let recent = app
+    let projects = app
         .try_state::<AppState>()
         .and_then(|state| {
             state
@@ -67,23 +69,24 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
                 .ok()
                 .and_then(|db| repository::list_projects(&db).ok())
         })
-        .map(|projects| {
-            let mut modules = projects
-                .into_iter()
-                .flat_map(|project| {
-                    let project_name = project.name;
-                    project.modules.into_iter().filter_map(move |module| {
-                        module
-                            .last_opened_at
-                            .map(|opened_at| (opened_at, module, project_name.clone()))
-                    })
-                })
-                .collect::<Vec<_>>();
-            modules.sort_by(|a, b| b.0.cmp(&a.0));
-            modules.truncate(5);
-            modules
-        })
         .unwrap_or_default();
+
+    let recent = {
+        let mut modules = projects
+            .iter()
+            .flat_map(|project| {
+                let project_name = project.name.clone();
+                project.modules.iter().filter_map(move |module| {
+                    module
+                        .last_opened_at
+                        .map(|opened_at| (opened_at, module, project_name.clone()))
+                })
+            })
+            .collect::<Vec<_>>();
+        modules.sort_by(|a, b| b.0.cmp(&a.0));
+        modules.truncate(5);
+        modules
+    };
 
     let open_main = MenuItemBuilder::with_id(TRAY_OPEN_MAIN, "打开主窗口")
         .build(app)
@@ -103,6 +106,32 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
             builder = builder.item(&item);
         }
     }
+
+    if !projects.is_empty() {
+        builder = builder.separator();
+        for project in &projects {
+            let mut submenu = SubmenuBuilder::with_id(
+                app,
+                format!("{TRAY_BUSINESS_PREFIX}{}", project.id),
+                &project.name,
+            );
+            for module in &project.modules {
+                let label = if module.name.is_empty() {
+                    "未命名项目"
+                } else {
+                    &module.name
+                };
+                let item =
+                    MenuItemBuilder::with_id(format!("{TRAY_PROJECT_PREFIX}{}", module.id), label)
+                        .build(app)
+                        .map_err(|e| e.to_string())?;
+                submenu = submenu.item(&item);
+            }
+            let submenu = submenu.build().map_err(|e| e.to_string())?;
+            builder = builder.item(&submenu);
+        }
+    }
+
     builder
         .separator()
         .item(&quit)
@@ -251,6 +280,11 @@ fn import_config(path: String, state: State<AppState>) -> Result<ImportResult, S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Register this first so a second process hands off to the existing
+        // process before any other plugin initializes.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -278,7 +312,10 @@ pub fn run() {
                 show_main_window(app);
             } else if id == TRAY_QUIT {
                 app.exit(0);
-            } else if let Some(module_id) = id.strip_prefix(TRAY_RECENT_PREFIX) {
+            } else if let Some(module_id) = id
+                .strip_prefix(TRAY_RECENT_PREFIX)
+                .or_else(|| id.strip_prefix(TRAY_PROJECT_PREFIX))
+            {
                 let result = app
                     .try_state::<AppState>()
                     .map(|state| with_db(&state, |db| services::launch_module(db, module_id, None)))

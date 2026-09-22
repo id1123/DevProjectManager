@@ -91,6 +91,7 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .primary-button:disabled { border-color: var(--line); color: var(--subtle); background: var(--panel-muted); box-shadow: none; cursor: not-allowed; transform: none; }
 .secondary-button { border: 1px solid var(--line); color: var(--text); background: var(--panel); }
 .secondary-button:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); background: var(--panel-muted); }
+.secondary-button.active { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); color: var(--primary); background: var(--primary-soft); }
 .danger-button { border: 1px solid var(--danger); color: white; background: var(--danger); }
 .small { min-height: 33px; padding: 6px 10px; font-size: 12px; }
 .icon-button { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }
@@ -147,6 +148,12 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .card-module-card-footer > svg { color: var(--subtle); }
 .card-add-module { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 160px; padding: 18px; border: 1px dashed color-mix(in srgb, var(--primary) 32%, var(--line)); border-radius: 11px; color: var(--primary); background: color-mix(in srgb, var(--primary-soft) 26%, var(--panel)); cursor: pointer; font-size: 11px; font-weight: 600; transition: .15s ease; }
 .card-add-module:hover { border-color: var(--primary); background: color-mix(in srgb, var(--primary-soft) 58%, var(--panel)); transform: translateY(-1px); }
+.card-module-list.compact-list { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.compact-module-card { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 42px; padding: 7px 8px 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); cursor: pointer; transition: .15s ease; }
+.compact-module-card:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); background: color-mix(in srgb, var(--primary-soft) 25%, var(--panel)); }
+.compact-module-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: -2px; }
+.compact-module-card strong { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.card-add-module.compact-add { flex-direction: row; min-height: 42px; padding: 7px 10px; }
 .card-empty-modules { display: flex; align-items: center; gap: 12px; width: 100%; padding: 17px; border: 1px dashed var(--line); border-radius: 11px; color: var(--muted); background: var(--panel); cursor: pointer; text-align: left; }
 .card-empty-modules span { min-width: 0; flex: 1; }
 .card-empty-modules strong, .card-empty-modules small { display: block; }
