@@ -45,39 +45,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # 先拿到 Release ID，再交给 tauri-action 上传。不要把 tagName 直接传给
-      # tauri-action，否则它生成的 latest.json 会使用 api.github.com 的 asset
-      # 地址，客户端匿名下载很容易触发 GitHub API 速率限制并返回 403。
-      - name: Create or reuse GitHub Release
-        id: release
-        uses: actions/github-script@v9
-        env:
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        with:
-          result-encoding: string
-          script: |
-            const { owner, repo } = context.repo;
-            const tag = process.env.RELEASE_TAG;
-
-            try {
-              const { data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
-              return String(release.id);
-            } catch (error) {
-              if (error.status !== 404) throw error;
-            }
-
-            const { data: release } = await github.rest.repos.createRelease({
-              owner,
-              repo,
-              tag_name: tag,
-              name: `Project Hub ${tag}`,
-              body: '请查看仓库中的 README 和更新说明。',
-              draft: false,
-              prerelease: false,
-            });
-            return String(release.id);
-
       - name: Build and publish NSIS installer
+        id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,8 +54,83 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
-          # 不传 tagName 时，latest.json 会指向
-          # /releases/latest/download/<asset>，避免客户端走 GitHub API asset 地址。
-          releaseId: ${{ steps.release.outputs.result }}
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: Project Hub ${{ env.RELEASE_TAG }}
+          releaseBody: 请查看仓库中的 README 和更新说明。
+          releaseDraft: false
+          # GitHub 的 /releases/latest 下载地址会忽略 prerelease；保持为正式 Release，
+          # 版本号中的 alpha/beta/rc 仍会由应用更新器按语义化版本处理。
+          prerelease: false
           uploadUpdaterJson: true
           args: --bundles nsis
+
+      # tauri-action 生成的清单会使用 api.github.com/releases/assets/<id>。
+      # 客户端匿名下载这个地址会受 GitHub API 速率限制，因此发布后
+      # 将它改为公开 Release 资产的 browser_download_url。
+      - name: Rewrite updater manifest download URLs
+        uses: actions/github-script@v9
+        env:
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const releaseId = Number(process.env.RELEASE_ID);
+            if (!Number.isSafeInteger(releaseId)) {
+              throw new Error(`Invalid release ID: ${process.env.RELEASE_ID}`);
+            }
+
+            const { data: release } = await github.rest.repos.getRelease({
+              owner,
+              repo,
+              release_id: releaseId,
+            });
+            const manifestAsset = release.assets.find((asset) => asset.name === 'latest.json');
+            if (!manifestAsset) throw new Error('latest.json was not uploaded');
+
+            const response = await github.request(
+              'GET /repos/{owner}/{repo}/releases/assets/{asset_id}',
+              {
+                owner,
+                repo,
+                asset_id: manifestAsset.id,
+                headers: { accept: 'application/octet-stream' },
+              },
+            );
+            const manifestText = typeof response.data === 'string'
+              ? response.data
+              : Buffer.from(response.data).toString('utf8');
+            const manifest = JSON.parse(manifestText);
+
+            for (const [platform, entry] of Object.entries(manifest.platforms ?? {})) {
+              const assetId = Number(new URL(entry.url).pathname.split('/').at(-1));
+              const downloadAsset = release.assets.find((asset) => asset.id === assetId);
+              if (!downloadAsset) {
+                throw new Error(`Cannot map updater asset for ${platform}: ${entry.url}`);
+              }
+              entry.url = downloadAsset.browser_download_url;
+            }
+
+            const data = `${JSON.stringify(manifest, null, 2)}\n`;
+            const replacementName = `latest.${context.runId}.${context.runAttempt}.json`;
+            const { data: replacementAsset } = await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: releaseId,
+              name: replacementName,
+              headers: {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(data),
+              },
+              data,
+            });
+            await github.rest.repos.deleteReleaseAsset({
+              owner,
+              repo,
+              asset_id: manifestAsset.id,
+            });
+            await github.rest.repos.updateReleaseAsset({
+              owner,
+              repo,
+              asset_id: replacementAsset.id,
+              name: 'latest.json',
+            });

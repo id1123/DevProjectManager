@@ -74,7 +74,7 @@ macOS 安装包需要在 macOS 上构建；正式分发时还需要按目标平�
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（仅当私钥设置了密码时需要）
 
-对应的公钥写入 `src-tauri/tauri.conf.json` 的 updater 配置中。私钥只应保存在本机安全位置和 GitHub Actions Secrets，绝不能提交到仓库、README 或 Release 附件。GitHub Actions 使用仓库自带的 `GITHUB_TOKEN` 创建 Release；当前只发布 NSIS 包，以保持 Windows 安装与应用内更新流程一致。Release 保持为 GitHub 的正式 Release，这样固定的 `/releases/latest/download/latest.json` 地址才能持续提供最新更新清单。工作流会先创建 Release 并将 `releaseId` 交给 `tauri-action`，使清单中的安装包使用 `/releases/latest/download/<asset>` 直链，避免客户端匿名调用 GitHub API 触发速率限制。
+对应的公钥写入 `src-tauri/tauri.conf.json` 的 updater 配置中。私钥只应保存在本机安全位置和 GitHub Actions Secrets，绝不能提交到仓库、README 或 Release 附件。GitHub Actions 使用仓库自带的 `GITHUB_TOKEN` 创建 Release；当前只发布 NSIS 包，以保持 Windows 安装与应用内更新流程一致。Release 保持为 GitHub 的正式 Release，这样固定的 `/releases/latest/download/latest.json` 地址才能持续提供最新更新清单。工作流会在上传完成后将清单中的 GitHub API asset 地址自动改为 Release 的 `browser_download_url`，避免客户端匿名调用 GitHub API 触发速率限制。
 
 ## 数据位置与安全
 
