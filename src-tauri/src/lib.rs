@@ -6,7 +6,11 @@ mod services;
 use database::AppState;
 use models::*;
 use std::str::FromStr;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent,
+};
 use tauri_plugin_global_shortcut::{
     Builder as GlobalShortcutBuilder, GlobalShortcutExt, Shortcut, ShortcutState,
 };
@@ -39,6 +43,84 @@ fn register_shortcut(app: &AppHandle, shortcut_text: &str) -> Result<(), String>
     manager
         .register(shortcut)
         .map_err(|e| format!("无法注册全局快捷键（可能已被其他程序占用）：{e}"))
+}
+
+const TRAY_ID: &str = "main-tray";
+const TRAY_OPEN_MAIN: &str = "tray-open-main";
+const TRAY_QUIT: &str = "tray-quit";
+const TRAY_RECENT_PREFIX: &str = "tray-recent-";
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, String> {
+    let recent = app
+        .try_state::<AppState>()
+        .and_then(|state| {
+            state
+                .db
+                .lock()
+                .ok()
+                .and_then(|db| repository::list_projects(&db).ok())
+        })
+        .map(|projects| {
+            let mut modules = projects
+                .into_iter()
+                .flat_map(|project| {
+                    let project_name = project.name;
+                    project.modules.into_iter().filter_map(move |module| {
+                        module
+                            .last_opened_at
+                            .map(|opened_at| (opened_at, module, project_name.clone()))
+                    })
+                })
+                .collect::<Vec<_>>();
+            modules.sort_by(|a, b| b.0.cmp(&a.0));
+            modules.truncate(5);
+            modules
+        })
+        .unwrap_or_default();
+
+    let open_main = MenuItemBuilder::with_id(TRAY_OPEN_MAIN, "打开主窗口")
+        .build(app)
+        .map_err(|e| e.to_string())?;
+    let quit = MenuItemBuilder::with_id(TRAY_QUIT, "退出")
+        .build(app)
+        .map_err(|e| e.to_string())?;
+    let mut builder = MenuBuilder::new(app).item(&open_main);
+    if !recent.is_empty() {
+        builder = builder.separator();
+        for (_, module, project_name) in recent {
+            let label = format!("{} · {}", module.name, project_name);
+            let item =
+                MenuItemBuilder::with_id(format!("{TRAY_RECENT_PREFIX}{}", module.id), label)
+                    .build(app)
+                    .map_err(|e| e.to_string())?;
+            builder = builder.item(&item);
+        }
+    }
+    builder
+        .separator()
+        .item(&quit)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+fn refresh_tray_menu(app: &AppHandle) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        match build_tray_menu(app) {
+            Ok(menu) => {
+                if let Err(error) = tray.set_menu(Some(menu)) {
+                    eprintln!("托盘菜单刷新失败：{error}");
+                }
+            }
+            Err(error) => eprintln!("托盘菜单构建失败：{error}"),
+        }
+    }
 }
 
 #[tauri::command]
@@ -144,9 +226,14 @@ fn hide_launcher_window(window: WebviewWindow) -> Result<(), String> {
 fn launch_module(
     module_id: String,
     ide_id: Option<String>,
+    app: AppHandle,
     state: State<AppState>,
 ) -> Result<LaunchResult, String> {
-    with_db(&state, |db| services::launch_module(db, &module_id, ide_id))
+    let result = with_db(&state, |db| services::launch_module(db, &module_id, ide_id));
+    if result.is_ok() {
+        refresh_tray_menu(&app);
+    }
+    result
 }
 #[tauri::command]
 fn reveal_module_path(module_id: String, state: State<AppState>) -> Result<(), String> {
@@ -166,6 +253,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             GlobalShortcutBuilder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -175,6 +264,32 @@ pub fn run() {
                 })
                 .build(),
         )
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if id == TRAY_OPEN_MAIN {
+                show_main_window(app);
+            } else if id == TRAY_QUIT {
+                app.exit(0);
+            } else if let Some(module_id) = id.strip_prefix(TRAY_RECENT_PREFIX) {
+                let result = app
+                    .try_state::<AppState>()
+                    .map(|state| with_db(&state, |db| services::launch_module(db, module_id, None)))
+                    .unwrap_or_else(|| Err("应用状态尚未初始化".into()));
+                if let Err(error) = result {
+                    eprintln!("托盘项目启动失败：{error}");
+                } else {
+                    refresh_tray_menu(app);
+                }
+            }
+        })
         .setup(|app| {
             let state = AppState::open(app.handle()).map_err(std::io::Error::other)?;
             let shortcut = {
@@ -193,6 +308,25 @@ pub fn run() {
                     .global_shortcut
             };
             app.manage(state);
+            let tray_menu = build_tray_menu(app.handle()).map_err(std::io::Error::other)?;
+            let mut tray = TrayIconBuilder::with_id(TRAY_ID)
+                .menu(&tray_menu)
+                .tooltip("Project Hub")
+                .show_menu_on_left_click(false);
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
+            }
+            tray.build(app).map_err(std::io::Error::other)?;
+            app.on_tray_icon_event(|app, event| {
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    show_main_window(app);
+                }
+            });
             if let Err(error) = register_shortcut(app.handle(), &shortcut) {
                 eprintln!("{error}");
             }

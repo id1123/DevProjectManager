@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import {
   ArchiveRestore,
   Boxes,
@@ -7,6 +10,7 @@ import {
   ChevronRight,
   Clock3,
   Code2,
+  Download,
   ExternalLink,
   FileCode2,
   FolderOpen,
@@ -331,8 +335,57 @@ function IdeEditor({ ide, installation, onClose, onSave }: { ide?: IdeDefinition
 
 function SettingsPage({ settings, onSave, onImport, onExport }: { settings: AppSettings; onSave: (settings: AppSettings) => void; onImport: () => void; onExport: () => void }) {
   const [draft, setDraft] = useState(settings);
+  const [appVersion, setAppVersion] = useState("-");
+  const [availableUpdate, setAvailableUpdate] = useState<Awaited<ReturnType<typeof check>>>(null);
+  const [updateStatus, setUpdateStatus] = useState("点击检查是否有可用的新版本。");
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   useEffect(() => setDraft(settings), [settings]);
-  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card"><div className="settings-title"><div><h2>配置备份</h2><p>JSON 文件包含项目结构和平台配置，不包含任何真实代码文件。</p></div></div><div className="backup-actions"><button className="secondary-button" onClick={onImport}><Import size={17} />导入配置</button><button className="secondary-button" onClick={onExport}><ArchiveRestore size={17} />导出配置</button></div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
+  useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("未知")); }, []);
+
+  async function checkForUpdate() {
+    setUpdateBusy(true);
+    setUpdateProgress(null);
+    setUpdateStatus("正在从 GitHub Releases 检查更新…");
+    try {
+      const update = await check();
+      setAvailableUpdate(update);
+      setUpdateStatus(update ? `发现新版本 ${update.version}${update.body ? `：${update.body}` : ""}` : "当前已经是最新版本。");
+    } catch (error) {
+      setAvailableUpdate(null);
+      setUpdateStatus(`检查失败：${errorMessage(error)}`);
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function installUpdate() {
+    if (!availableUpdate) return;
+    setUpdateBusy(true);
+    setUpdateProgress(0);
+    setUpdateStatus("正在下载更新…");
+    let downloaded = 0;
+    let total = 0;
+    try {
+      await availableUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") total = event.data.contentLength ?? 0;
+        if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          setUpdateProgress(total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null);
+        }
+        if (event.event === "Finished") {
+          setUpdateProgress(100);
+          setUpdateStatus("更新已安装，正在重新启动…");
+        }
+      });
+      await relaunch();
+    } catch (error) {
+      setUpdateStatus(`更新失败：${errorMessage(error)}`);
+      setUpdateBusy(false);
+    }
+  }
+
+  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card"><div className="settings-title"><div><h2>软件更新</h2><p>当前版本 {appVersion}，更新包从 GitHub Releases 获取并校验签名。</p></div></div><div className="update-row"><div><strong>{updateStatus}</strong>{updateProgress !== null && <div className="update-progress"><i style={{ width: `${updateProgress}%` }} /></div>}</div>{availableUpdate ? <button className="primary-button" disabled={updateBusy} onClick={() => void installUpdate()}><Download size={17} />{updateBusy ? `下载中${updateProgress !== null ? ` ${updateProgress}%` : "…"}` : `更新到 ${availableUpdate.version}`}</button> : <button className="secondary-button" disabled={updateBusy} onClick={() => void checkForUpdate()}><RefreshCw size={17} />{updateBusy ? "检查中…" : "检查更新"}</button>}</div></section><section className="settings-card"><div className="settings-title"><div><h2>配置备份</h2><p>JSON 文件包含项目结构和平台配置，不包含任何真实代码文件。</p></div></div><div className="backup-actions"><button className="secondary-button" onClick={onImport}><Import size={17} />导入配置</button><button className="secondary-button" onClick={onExport}><ArchiveRestore size={17} />导出配置</button></div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
 }
 
 function ThemeOption({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button className={`theme-option ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span></button>; }

@@ -227,6 +227,11 @@ details summary { display: grid; place-items: center; width: 33px; height: 33px;
 .setting-field { display: grid; grid-template-columns: 180px 1fr; align-items: center; gap: 15px; font-size: 12px; }
 .setting-field input { width: 100%; }
 .backup-actions { display: flex; gap: 9px; }
+.update-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.update-row > div { min-width: 0; flex: 1; }
+.update-row strong { display: block; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 17px; }
+.update-progress { height: 5px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: var(--panel-muted); }
+.update-progress i { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .2s ease; }
 .save-row { display: flex; justify-content: flex-end; }
 .ide-grid { max-width: 1000px; margin: 0 auto; padding: 0; overflow: hidden; }
 .ide-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; align-items: center; gap: 13px; padding: 17px 19px; border-bottom: 1px solid var(--line); }

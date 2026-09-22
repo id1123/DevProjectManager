@@ -1,7 +1,7 @@
 {
   "name": "devprojectmanager",
   "private": true,
-  "version": "0.5.0-alpha",
+  "version": "0.6.0-alpha",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.12.0",
     "fuse.js": "^7.5.0",
     "lucide-react": "^1.47.0",
     "react": "^19.1.0",
