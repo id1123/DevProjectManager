@@ -1,6 +1,6 @@
 # Project Hub
 
-本地开发项目管理器（`0.6.1`）。它把相关代码按“业务项目 → 项目”组织起来，集中保存项目路径、标签和 IDE 启动配置，适合在本机快速找到并打开 API、Web、App 或其他代码项目。
+本地开发项目管理器（`0.6.2`）。它把相关代码按“业务项目 → 项目”组织起来，集中保存项目路径、标签和 IDE 启动配置，适合在本机快速找到并打开 API、Web、App 或其他代码项目。
 
 > 当前为早期版本，适合个人或小范围使用。数据和启动配置均保存在本机；尚未承诺跨设备同步、团队协作或生产环境级别的迁移兼容性。
 
@@ -67,7 +67,7 @@ macOS 安装包需要在 macOS 上构建；正式分发时还需要按目标平�
 
 ## 发布与应用内更新
 
-应用内更新从 GitHub Releases 获取版本信息和安装包。发布新版本时，先更新 `src-tauri/tauri.conf.json` 中的版本号并提交，再推送一个版本 tag（例如 `0.6.1` 或 `v0.6.1`）；`.github/workflows/release.yml` 会在 Windows runner 上自动构建 NSIS 安装包、生成 updater manifest，并创建 GitHub Release。也可以在 GitHub Actions 页面手动运行该工作流，并填写要发布的 tag。
+应用内更新从 GitHub Releases 获取版本信息和安装包。发布新版本时，先更新 `src-tauri/tauri.conf.json` 中的版本号并提交，再推送一个版本 tag（例如 `0.6.2` 或 `v0.6.2`）；`.github/workflows/release.yml` 会在 Windows runner 上自动构建 NSIS 安装包、生成 updater manifest，并创建 GitHub Release。也可以在 GitHub Actions 页面手动运行该工作流，并填写要发布的 tag。
 
 仓库的 Actions Secrets 需要配置更新签名密钥：
 
@@ -84,7 +84,7 @@ SQLite 数据库文件名为 `dev-project-manager.sqlite3`，保存在操作系�
 
 ## 版本说明
 
-当前为 `0.6.1`，已覆盖本地项目管理、标签筛选、最近打开、托盘运行和应用内更新流程。升级前建议备份导出的 JSON 配置；数据库结构、配置格式和 UI 仍可能在后续版本调整。
+当前为 `0.6.2`，已覆盖本地项目管理、标签筛选、最近打开、托盘运行和应用内更新流程。升级前建议备份导出的 JSON 配置；数据库结构、配置格式和 UI 仍可能在后续版本调整。
 
 ## 许可证
 

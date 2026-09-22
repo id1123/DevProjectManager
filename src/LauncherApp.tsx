@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowUpDown, Code2, CornerDownLeft, FileCode2, Search, Star, X } from "lucide-react";
 import { api, errorMessage } from "./api";
@@ -11,6 +11,28 @@ const empty: DashboardData = {
   ideInstallations: [],
   settings: { theme: "system", globalShortcut: "CommandOrControl+Shift+P", launcherWidth: 720, launcherHeight: 440 },
 };
+
+function highlightSearchText(text: string, query: string, keyPrefix: string): ReactNode {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return text;
+
+  const lowerText = text.toLocaleLowerCase();
+  const lowerQuery = normalizedQuery.toLocaleLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = lowerText.indexOf(lowerQuery, cursor);
+
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) parts.push(text.slice(cursor, matchIndex));
+    parts.push(<span key={`${keyPrefix}-highlight-${matchIndex}`} className="search-highlight">{text.slice(matchIndex, matchIndex + normalizedQuery.length)}</span>);
+    cursor = matchIndex + normalizedQuery.length;
+    matchIndex = lowerText.indexOf(lowerQuery, cursor);
+  }
+
+  if (!parts.length) return text;
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
 
 export default function LauncherApp() {
   const [dashboard, setDashboard] = useState(empty);
@@ -102,7 +124,7 @@ export default function LauncherApp() {
 
   return <main className="launcher-shell">
     <div className="launcher-search"><Search size={22} /><input ref={inputRef} autoFocus value={query} onChange={(event) => { setQuery(event.target.value); setSelected(0); }} placeholder="搜索项目名称或拼音、标签、路径、IDE…" />{query && <button className="icon-button" title="清空搜索" onClick={() => setQuery("")}><X size={17} /></button>}<button className="icon-button launcher-close" title="关闭快速启动" onClick={() => void hide()}><X size={18} /></button></div>
-    {error ? <div className="launcher-error">{error}</div> : <div className="launcher-results">{items.length ? items.map((item, index) => <button key={item.module.id} className={`launcher-item ${selected === index ? "selected" : ""}`} onMouseEnter={() => setSelected(index)} onClick={() => void launch(item)}><div className={`module-icon ${moduleTypeTone[item.module.moduleType]}`}><FileCode2 size={20} /></div><div className="launcher-copy"><strong>{item.project.name} <span>/</span> {item.module.name}</strong><small>{moduleTypeLabel[item.module.moduleType]} · {item.module.tags.join(" · ") || item.module.path?.path || "未配置路径"}</small></div>{item.module.isFavorite || item.project.isFavorite ? <Star size={15} fill="currentColor" className="favorite-star" /> : null}<span className="launcher-ide"><Code2 size={15} />{item.ide?.name ?? "未指定 IDE"}</span></button>) : <div className="launcher-empty"><Search size={25} /><strong>{query ? "没有匹配的项目" : "还没有可启动的项目"}</strong><span>{query ? "试试项目名、拼音首字母、标签、路径或 IDE" : "请先在主窗口中完成项目配置"}</span></div>}</div>}
+    {error ? <div className="launcher-error">{error}</div> : <div className="launcher-results">{items.length ? items.map((item, index) => <button key={item.module.id} className={`launcher-item ${selected === index ? "selected" : ""}`} onMouseEnter={() => setSelected(index)} onClick={() => void launch(item)}><div className={`module-icon ${moduleTypeTone[item.module.moduleType]}`}><FileCode2 size={20} /></div><div className="launcher-copy"><strong>{highlightSearchText(item.project.name, query, "project")} <span>/</span> {highlightSearchText(item.module.name, query, "module")}</strong><small>{moduleTypeLabel[item.module.moduleType]} · {item.module.tags.join(" · ") || item.module.path?.path || "未配置路径"}</small></div>{item.module.isFavorite || item.project.isFavorite ? <Star size={15} fill="currentColor" className="favorite-star" /> : null}<span className="launcher-ide"><Code2 size={15} />{item.ide?.name ?? "未指定 IDE"}</span></button>) : <div className="launcher-empty"><Search size={25} /><strong>{query ? "没有匹配的项目" : "还没有可启动的项目"}</strong><span>{query ? "试试项目名、拼音首字母、标签、路径或 IDE" : "请先在主窗口中完成项目配置"}</span></div>}</div>}
     <footer className="launcher-footer"><span><ArrowUpDown size={14} />选择</span><span><CornerDownLeft size={14} />打开</span><span><kbd>Esc</kbd>关闭</span><span className="launcher-count">{items.length} 个结果</span></footer>
   </main>;
 }
