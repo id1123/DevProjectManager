@@ -45,6 +45,38 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # 先拿到 Release ID，再交给 tauri-action 上传。不要把 tagName 直接传给
+      # tauri-action，否则它生成的 latest.json 会使用 api.github.com 的 asset
+      # 地址，客户端匿名下载很容易触发 GitHub API 速率限制并返回 403。
+      - name: Create or reuse GitHub Release
+        id: release
+        uses: actions/github-script@v9
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        with:
+          result-encoding: string
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.RELEASE_TAG;
+
+            try {
+              const { data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              return String(release.id);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: `Project Hub ${tag}`,
+              body: '请查看仓库中的 README 和更新说明。',
+              draft: false,
+              prerelease: false,
+            });
+            return String(release.id);
+
       - name: Build and publish NSIS installer
         uses: tauri-apps/tauri-action@v1
         env:
@@ -53,12 +85,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: Project Hub ${{ env.RELEASE_TAG }}
-          releaseBody: 请查看仓库中的 README 和更新说明。
-          releaseDraft: false
-          # GitHub 的 /releases/latest 下载地址会忽略 prerelease；保持为正式 Release，
-          # 版本号中的 alpha/beta/rc 仍会由应用更新器按语义化版本处理。
-          prerelease: false
-          includeUpdaterJson: true
+          # 不传 tagName 时，latest.json 会指向
+          # /releases/latest/download/<asset>，避免客户端走 GitHub API asset 地址。
+          releaseId: ${{ steps.release.outputs.result }}
+          uploadUpdaterJson: true
           args: --bundles nsis
