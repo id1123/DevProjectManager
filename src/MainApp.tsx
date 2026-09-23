@@ -57,7 +57,7 @@ import {
 } from "./utils";
 
 type View = "all" | "recent";
-type ManagementPanel = "ides" | "settings" | null;
+type SettingsTab = "general" | "ides";
 type ToastState = { kind: "success" | "error"; message: string } | null;
 
 const emptyDashboard: DashboardData = {
@@ -86,7 +86,8 @@ export default function MainApp() {
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [compactMode, setCompactMode] = useState(() => window.localStorage.getItem("project-hub:list-density") !== "detailed");
-  const [managementPanel, setManagementPanel] = useState<ManagementPanel>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [loading, setLoading] = useState(true);
   const [projectEditor, setProjectEditor] = useState<Project | "new" | null>(null);
   const [moduleEditor, setModuleEditor] = useState<{ project: Project; module?: ProjectModule } | null>(null);
@@ -175,7 +176,7 @@ export default function MainApp() {
           <NavItem active={view === "all" && !selectedProject} icon={<LayoutGrid />} label="全部项目" onClick={() => { setSelectedProjectId(null); setView("all"); }} />
           <NavItem active={view === "recent" && !selectedProject} icon={<Clock3 />} label="最近打开" onClick={() => { setSelectedProjectId(null); setView("recent"); }} />
         </nav>
-        <div className="sidebar-tools"><button title="IDE 管理" onClick={() => setManagementPanel("ides")}><Laptop size={17} /><span>IDE</span></button><button title="设置" onClick={() => setManagementPanel("settings")}><Settings size={17} /><span>设置</span></button></div>
+        <div className="sidebar-tools"><button title="设置" onClick={() => { setSettingsTab("general"); setSettingsOpen(true); }}><Settings size={17} /><span>设置</span></button></div>
       </aside>
 
       <main className="main-content">
@@ -229,8 +230,11 @@ export default function MainApp() {
 
       {projectEditor && <ProjectModal project={projectEditor === "new" ? undefined : projectEditor} tagSuggestions={allTags} onClose={() => setProjectEditor(null)} onSave={(input) => run(() => api.saveProject(input), input.id ? "业务项目已更新" : "业务项目已创建").then(() => setProjectEditor(null))} />}
       {moduleEditor && <ModuleModal project={moduleEditor.project} module={moduleEditor.module} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} tagSuggestions={allTags} onClose={() => setModuleEditor(null)} onSave={(input) => run(() => api.saveModule(input), input.id ? "项目已更新" : "项目已添加").then(() => setModuleEditor(null))} />}
-      {managementPanel === "ides" && <Modal title="IDE 管理" subtitle="添加和维护用于打开项目的本地开发工具。" onClose={() => setManagementPanel(null)} wide><IdeManager dashboard={dashboard} onRefresh={() => run(api.detectIdes, "IDE 检测完成")} onSave={(definition, installation) => run(async () => { const saved = await api.saveIdeDefinition(definition); await api.saveIde({ ...installation, ideId: saved.id }); }, definition.id ? "IDE 配置已保存" : "自定义 IDE 已添加")} onDelete={(ide) => setConfirm({ title: `删除“${ide.name}”？`, body: "将删除这个 IDE 的启动配置，已选择它的项目会保留，但需要重新指定启动应用。", action: () => run(() => api.deleteIdeDefinition(ide.id), "自定义 IDE 已删除") })} /></Modal>}
-      {managementPanel === "settings" && <Modal title="设置" subtitle="调整外观、快捷键和本地配置。" onClose={() => setManagementPanel(null)} wide><SettingsPage settings={dashboard.settings} onSave={(settings) => run(async () => { if (settings.globalShortcut !== dashboard.settings.globalShortcut) await api.setGlobalShortcut(settings.globalShortcut); await api.saveSettings(settings); }, "设置已保存")} onImport={async () => { const path = await open({ multiple: false, directory: false, filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (typeof path === "string") await run(() => api.importConfig(path), "配置已导入，失效路径已保留并标记"); }} onExport={async () => { const path = await save({ defaultPath: "project-hub-config.json", filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (path) await run(() => api.exportConfig(path), "配置已导出"); }} /></Modal>}
+      {settingsOpen && <Modal title="设置" subtitle="调整外观、快捷键、IDE 和本地配置。" onClose={() => setSettingsOpen(false)} wide>
+        <div className="settings-tabs" role="tablist" aria-label="设置分类"><button role="tab" aria-selected={settingsTab === "general"} className={settingsTab === "general" ? "active" : ""} onClick={() => setSettingsTab("general")}><Settings size={16} />常规设置</button><button role="tab" aria-selected={settingsTab === "ides"} className={settingsTab === "ides" ? "active" : ""} onClick={() => setSettingsTab("ides")}><Laptop size={16} />IDE 管理</button></div>
+        <div style={{ display: settingsTab === "general" ? undefined : "none" }}><SettingsPage settings={dashboard.settings} onSave={(settings) => run(async () => { if (settings.globalShortcut !== dashboard.settings.globalShortcut) await api.setGlobalShortcut(settings.globalShortcut); await api.saveSettings(settings); }, "设置已保存")} onImport={async () => { const path = await open({ multiple: false, directory: false, filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (typeof path === "string") await run(() => api.importConfig(path), "配置已导入，失效路径已保留并标记"); }} onExport={async () => { const path = await save({ defaultPath: "project-hub-config.json", filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (path) await run(() => api.exportConfig(path), "配置已导出"); }} /></div>
+        <div style={{ display: settingsTab === "ides" ? undefined : "none" }}><IdeManager dashboard={dashboard} onRefresh={() => run(api.detectIdes, "IDE 检测完成")} onSave={(definition, installation) => run(async () => { const saved = await api.saveIdeDefinition(definition); await api.saveIde({ ...installation, ideId: saved.id }); }, definition.id ? "IDE 配置已保存" : "自定义 IDE 已添加")} onDelete={(ide) => setConfirm({ title: `删除“${ide.name}”？`, body: "将删除这个 IDE 的启动配置，已选择它的项目会保留，但需要重新指定启动应用。", action: () => run(() => api.deleteIdeDefinition(ide.id), "自定义 IDE 已删除") })} /></div>
+      </Modal>}
       {confirm && <ConfirmModal {...confirm} onClose={() => setConfirm(null)} onConfirm={() => confirm.action().finally(() => setConfirm(null))} />}
       {toast && <div className={`toast ${toast.kind}`}>{toast.message}</div>}
     </div>

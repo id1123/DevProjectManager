@@ -173,20 +173,36 @@ fn get_project(id: String, state: State<AppState>) -> Result<Option<Project>, St
     with_db(&state, |db| repository::get_project(db, &id))
 }
 #[tauri::command]
-fn save_project(input: ProjectInput, state: State<AppState>) -> Result<Project, String> {
-    with_db(&state, |db| repository::save_project(db, input))
+fn save_project(
+    input: ProjectInput,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<Project, String> {
+    let project = with_db(&state, |db| repository::save_project(db, input))?;
+    refresh_tray_menu(&app);
+    Ok(project)
 }
 #[tauri::command]
-fn delete_project(id: String, state: State<AppState>) -> Result<(), String> {
-    with_db(&state, |db| repository::delete_project(db, &id))
+fn delete_project(id: String, app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    with_db(&state, |db| repository::delete_project(db, &id))?;
+    refresh_tray_menu(&app);
+    Ok(())
 }
 #[tauri::command]
-fn save_module(input: ModuleInput, state: State<AppState>) -> Result<ProjectModule, String> {
-    with_db(&state, |db| repository::save_module(db, input))
+fn save_module(
+    input: ModuleInput,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<ProjectModule, String> {
+    let module = with_db(&state, |db| repository::save_module(db, input))?;
+    refresh_tray_menu(&app);
+    Ok(module)
 }
 #[tauri::command]
-fn delete_module(id: String, state: State<AppState>) -> Result<(), String> {
-    with_db(&state, |db| repository::delete_module(db, &id))
+fn delete_module(id: String, app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    with_db(&state, |db| repository::delete_module(db, &id))?;
+    refresh_tray_menu(&app);
+    Ok(())
 }
 #[tauri::command]
 fn list_ide_definitions(state: State<AppState>) -> Result<Vec<IdeDefinition>, String> {
@@ -273,8 +289,14 @@ fn export_config(path: String, state: State<AppState>) -> Result<(), String> {
     with_db(&state, |db| services::write_export_file(db, &path))
 }
 #[tauri::command]
-fn import_config(path: String, state: State<AppState>) -> Result<ImportResult, String> {
-    with_db(&state, |db| services::read_import_file(db, &path))
+fn import_config(
+    path: String,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<ImportResult, String> {
+    let result = with_db(&state, |db| services::read_import_file(db, &path))?;
+    refresh_tray_menu(&app);
+    Ok(result)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

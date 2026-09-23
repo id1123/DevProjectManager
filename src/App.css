@@ -70,7 +70,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .nav-item svg { width: 18px; height: 18px; }
 .nav-item:hover { color: var(--text); background: var(--panel-muted); }
 .nav-item.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
-.sidebar-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+.sidebar-tools { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: auto; }
 .sidebar-tools button { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 6px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--panel-muted); cursor: pointer; font-size: 11px; }
 .sidebar-tools button:hover { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); }
 kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); background: var(--panel); font-size: 11px; }
@@ -234,6 +234,9 @@ details summary { display: grid; place-items: center; width: 33px; height: 33px;
 
 .tool-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
 .tool-panel-header > p { margin: 0; color: var(--muted); font-size: 11px; }
+.settings-tabs { display: flex; gap: 6px; margin-bottom: 15px; padding: 4px; border-radius: 10px; background: var(--panel-muted); }
+.settings-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 1; padding: 9px 12px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
+.settings-tabs button.active { color: var(--primary); background: var(--panel); box-shadow: 0 1px 5px rgba(0, 0, 0, .08); }
 .settings-stack { display: flex; flex-direction: column; gap: 10px; max-width: 900px; margin: 0 auto; }
 .settings-card { padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
 .settings-title { display: flex; justify-content: space-between; margin-bottom: 17px; }
