@@ -1,6 +1,6 @@
 [package]
 name = "devprojectmanager"
-version = "0.6.3"
+version = "0.6.4"
 description = "Cross-platform local development project manager"
 authors = ["Project Hub"]
 edition = "2021"
@@ -25,6 +25,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }

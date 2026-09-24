@@ -129,7 +129,8 @@ fn migrate(db: &Connection) -> Result<(), String> {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, icon TEXT, color TEXT,
         tags TEXT NOT NULL DEFAULT '[]',
-        is_favorite INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+        is_favorite INTEGER NOT NULL DEFAULT 0, is_pinned INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS project_modules (
@@ -198,6 +199,22 @@ fn migrate(db: &Connection) -> Result<(), String> {
         }
     }
     db.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, strftime('%s','now'))", [])
+        .map_err(|e| format!("记录数据库迁移失败: {e}"))?;
+    let has_pinned: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('projects') WHERE name='is_pinned')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("检查置顶字段迁移失败: {e}"))?;
+    if !has_pinned {
+        db.execute(
+            "ALTER TABLE projects ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(|e| format!("升级置顶字段失败: {e}"))?;
+    }
+    db.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, strftime('%s','now'))", [])
         .map_err(|e| format!("记录数据库迁移失败: {e}"))?;
     Ok(())
 }
@@ -298,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_migration_adds_tags_to_legacy_tables() {
+    fn migration_adds_tags_and_pinning_to_legacy_tables() {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(
             r#"
@@ -330,6 +347,17 @@ mod tests {
                 .unwrap();
             assert!(has_tags, "{table} should receive tags during v3 migration");
         }
+        let has_pinned: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('projects') WHERE name='is_pinned')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            has_pinned,
+            "projects should receive is_pinned during v4 migration"
+        );
     }
 
     #[test]
@@ -347,6 +375,7 @@ mod tests {
                 color: Some("#7065e8".into()),
                 tags: vec!["验收".into(), "验收".into(), " 核心 ".into()],
                 is_favorite: true,
+                is_pinned: true,
                 sort_order: 0,
             },
         )
@@ -385,9 +414,43 @@ mod tests {
         assert_eq!(result.modules_imported, 1);
         let imported = repository::list_projects(&target).unwrap();
         assert_eq!(imported[0].name, "业务项目");
+        assert!(imported[0].is_pinned);
         assert_eq!(imported[0].modules[0].name, "Web");
         assert_eq!(imported[0].tags, vec!["验收", "核心"]);
         assert_eq!(imported[0].modules[0].tags, vec!["前端", "Web"]);
+    }
+
+    #[test]
+    fn pinned_projects_sort_before_favorites() {
+        let db = Connection::open_in_memory().unwrap();
+        migrate(&db).unwrap();
+        for (name, is_favorite, is_pinned) in [
+            ("普通", false, false),
+            ("收藏", true, false),
+            ("置顶", false, true),
+        ] {
+            repository::save_project(
+                &db,
+                ProjectInput {
+                    id: None,
+                    name: name.into(),
+                    description: None,
+                    icon: None,
+                    color: None,
+                    tags: vec![],
+                    is_favorite,
+                    is_pinned,
+                    sort_order: 0,
+                },
+            )
+            .unwrap();
+        }
+        let names: Vec<String> = repository::list_projects(&db)
+            .unwrap()
+            .into_iter()
+            .map(|project| project.name)
+            .collect();
+        assert_eq!(names, ["置顶", "收藏", "普通"]);
     }
 
     #[test]

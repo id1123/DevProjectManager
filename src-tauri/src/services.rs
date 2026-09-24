@@ -666,7 +666,7 @@ pub fn import_bundle(db: &mut Connection, bundle: ExportBundle) -> Result<Import
         let pid = new_id();
         let project_tags = serde_json::to_string(&normalize_tags(project.tags.clone()))
             .map_err(|e| e.to_string())?;
-        tx.execute("INSERT INTO projects(id,name,description,icon,color,tags,is_favorite,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",params![pid,project.name,project.description,project.icon,project.color,project_tags,if project.is_favorite{1}else{0},project.sort_order,timestamp]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO projects(id,name,description,icon,color,tags,is_favorite,is_pinned,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![pid,project.name,project.description,project.icon,project.color,project_tags,if project.is_favorite{1}else{0},if project.is_pinned{1}else{0},project.sort_order,timestamp]).map_err(|e|e.to_string())?;
         result.projects_imported += 1;
         for module in &project.modules {
             let mid = new_id();

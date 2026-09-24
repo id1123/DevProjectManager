@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import {
@@ -20,6 +21,7 @@ import {
   MoreHorizontal,
   Moon,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
   Rows3,
@@ -71,7 +73,7 @@ function normalizeDashboard(value: DashboardData): DashboardData {
   return {
     ...emptyDashboard,
     ...value,
-    projects: (value.projects ?? []).map((project) => ({ ...project, tags: project.tags ?? [], modules: (project.modules ?? []).map((module) => ({ ...module, tags: module.tags ?? [] })) })),
+    projects: (value.projects ?? []).map((project) => ({ ...project, isPinned: project.isPinned ?? false, tags: project.tags ?? [], modules: (project.modules ?? []).map((module) => ({ ...module, tags: module.tags ?? [] })) })),
     ideDefinitions: value.ideDefinitions ?? [],
     ideInstallations: value.ideInstallations ?? [],
     settings: { ...emptyDashboard.settings, ...(value.settings ?? {}) },
@@ -211,10 +213,10 @@ export default function MainApp() {
             </div>
             <div className="project-filters"><button className={`favorite-filter ${favoriteOnly ? "active" : ""}`} onClick={() => setFavoriteOnly((value) => !value)}><Star size={15} fill={favoriteOnly ? "currentColor" : "none"} />收藏</button><div className="tag-filter-row"><span><Tags size={14} />标签</span>{allTags.length ? allTags.map((tag) => <button key={tag} className={selectedTags.includes(tag) ? "active" : ""} onClick={() => setSelectedTags((values) => values.includes(tag) ? values.filter((value) => value !== tag) : [...values, tag])}><i />{tag}</button>) : <small>添加项目标签后可在这里筛选</small>}</div>{(favoriteOnly || selectedTags.length > 0) && <button className="clear-filter" onClick={() => { setFavoriteOnly(false); setSelectedTags([]); }}>清除筛选</button>}</div>
             {visibleModules.length || (view === "all" && visibleProjects.length) ? (
-              view === "recent" ? <RecentProjectList items={visibleModules} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} onLaunch={launch} onEdit={(project, module) => setModuleEditor({ project: dashboard.projects.find((item) => item.id === project.id) ?? project, module })} /> : <section className="project-grid">
+              view === "recent" ? <RecentProjectList items={visibleModules} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} onLaunch={launch} onEdit={(project, module) => setModuleEditor({ project: dashboard.projects.find((item) => item.id === project.id) ?? project, module })} /> : <section className={`project-grid ${compactMode ? "compact-grid" : ""}`}>
                 {visibleProjects.map((project) => {
                   const sourceProject = dashboard.projects.find((item) => item.id === project.id) ?? project;
-                  return <ProjectCard key={project.id} project={project} compact={compactMode} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} onOpen={() => setSelectedProjectId(project.id)} onLaunch={launch} onAddModule={() => setModuleEditor({ project: sourceProject })} onEditModule={(module) => setModuleEditor({ project: sourceProject, module })} onEdit={() => setProjectEditor(sourceProject)} onDelete={() => setConfirm({
+                  return <ProjectCard key={project.id} project={project} compact={compactMode} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} onOpen={() => setSelectedProjectId(project.id)} onLaunch={launch} onAddModule={() => setModuleEditor({ project: sourceProject })} onEditModule={(module) => setModuleEditor({ project: sourceProject, module })} onEdit={() => setProjectEditor(sourceProject)} onPin={() => void run(() => api.saveProject({ id: sourceProject.id, name: sourceProject.name, description: sourceProject.description ?? undefined, tags: sourceProject.tags, color: sourceProject.color ?? undefined, icon: sourceProject.icon ?? undefined, isFavorite: sourceProject.isFavorite, isPinned: !sourceProject.isPinned, sortOrder: sourceProject.sortOrder }), sourceProject.isPinned ? "已取消置顶" : "已置顶业务项目")} onDelete={() => setConfirm({
                     title: `删除“${sourceProject.name}”？`,
                     body: `将删除该业务项目及其 ${sourceProject.modules.length} 个项目配置，但不会删除任何真实代码文件。`,
                     action: () => run(() => api.deleteProject(project.id), "业务项目配置已删除"),
@@ -245,11 +247,11 @@ function NavItem({ active, icon, label, onClick }: { active: boolean; icon: Reac
   return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span></button>;
 }
 
-function ProjectCard({ project, compact, definitions, installations, onOpen, onLaunch, onAddModule, onEditModule, onEdit, onDelete }: { project: Project; compact: boolean; definitions: IdeDefinition[]; installations: DashboardData["ideInstallations"]; onOpen: () => void; onLaunch: (module: ProjectModule) => void; onAddModule: () => void; onEditModule: (module: ProjectModule) => void; onEdit: () => void; onDelete: () => void }) {
-  return <article className="project-card">
+function ProjectCard({ project, compact, definitions, installations, onOpen, onLaunch, onAddModule, onEditModule, onEdit, onPin, onDelete }: { project: Project; compact: boolean; definitions: IdeDefinition[]; installations: DashboardData["ideInstallations"]; onOpen: () => void; onLaunch: (module: ProjectModule) => void; onAddModule: () => void; onEditModule: (module: ProjectModule) => void; onEdit: () => void; onPin: () => void; onDelete: () => void }) {
+  return <article className={`project-card ${compact ? "compact-project" : ""} ${project.isPinned ? "pinned-project" : project.isFavorite ? "favorite-project" : ""}`}>
     <header className="project-card-header" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpen(); } }}>
-      <div className="project-summary"><div className="project-avatar" style={{ background: project.color ?? colors[0] }}>{project.name.slice(0, 1).toUpperCase()}</div><div><div className="project-name-line"><h2>{project.name}</h2>{project.isFavorite && <Star size={15} fill="currentColor" />}</div><p>{project.description || "未填写业务项目说明"}</p>{project.tags.length > 0 && <div className="entity-tags">{project.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</div></div>
-      <div className="project-card-actions"><span>{project.modules.length} 个项目</span>{!compact && <button className="project-inline-add" title="添加项目" onClick={(event) => { event.stopPropagation(); onAddModule(); }}><Plus size={15} />添加项目</button>}<button className="icon-button" title="编辑业务项目" onClick={(event) => { event.stopPropagation(); onEdit(); }}><Pencil size={15} /></button><button className="icon-button danger" title="删除业务项目" onClick={(event) => { event.stopPropagation(); onDelete(); }}><Trash2 size={15} /></button><ChevronRight size={19} /></div>
+      <div className="project-summary"><div className="project-avatar" style={{ background: project.color ?? colors[0] }}>{project.name.slice(0, 1).toUpperCase()}</div><div><div className="project-name-line"><h2>{project.name}</h2>{project.isPinned && <Pin size={15} fill="currentColor" className="pinned-icon" />}{project.isFavorite && <Star size={15} fill="currentColor" />}</div><p>{project.description || "未填写业务项目说明"}</p>{project.tags.length > 0 && <div className="entity-tags">{project.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</div></div>
+      <div className="project-card-actions"><span>{project.modules.length} 个项目</span><button className="project-inline-add" title="添加项目" onClick={(event) => { event.stopPropagation(); onAddModule(); }}><Plus size={15} />添加项目</button><button className={`icon-button pin-button ${project.isPinned ? "active" : ""}`} title={project.isPinned ? "取消置顶" : "置顶业务项目"} aria-label={project.isPinned ? "取消置顶" : "置顶业务项目"} aria-pressed={project.isPinned} onClick={(event) => { event.stopPropagation(); onPin(); }}><Pin size={15} fill={project.isPinned ? "currentColor" : "none"} /></button><button className="icon-button" title="编辑业务项目" onClick={(event) => { event.stopPropagation(); onEdit(); }}><Pencil size={15} /></button><button className="icon-button danger" title="删除业务项目" onClick={(event) => { event.stopPropagation(); onDelete(); }}><Trash2 size={15} /></button><ChevronRight size={19} /></div>
     </header>
     <div className={`card-module-list ${compact ? "compact-list" : ""}`}>{project.modules.map((module) => {
       const ide = ideForModule(module.ideId, definitions);
@@ -264,8 +266,8 @@ function ProjectCard({ project, compact, definitions, installations, onOpen, onL
         <span className="card-module-path">{displayPath(module.path?.path ?? "")}</span>
         <div className="card-module-card-footer"><span className={ready ? "status-dot ok" : "status-dot warning"}>{ready ? "可启动" : "需检查"}</span><span><Code2 size={13} />{ide?.name ?? "未指定 IDE"}</span><ExternalLink size={15} /></div>
       </article>;
-    })}{compact && <button className="card-add-module compact-add" title="添加项目" onClick={onAddModule}><Plus size={16} /><span>添加项目</span></button>}{!compact && project.modules.length === 0 && <div className="card-empty-modules"><FileCode2 size={22} /><span><strong>尚未添加项目</strong><small>使用标题栏中的“添加项目”开始配置。</small></span></div>}</div>
-    <footer className="card-footer"><span><Clock3 size={14} />最近打开 {relativeTime(project.lastOpenedAt)}</span></footer>
+    })}{!compact && project.modules.length === 0 && <div className="card-empty-modules"><FileCode2 size={22} /><span><strong>尚未添加项目</strong><small>使用标题栏中的“添加项目”开始配置。</small></span></div>}{compact && project.modules.length === 0 && <span className="compact-empty">尚未添加项目</span>}</div>
+    {!compact && <footer className="card-footer"><span><Clock3 size={14} />最近打开 {relativeTime(project.lastOpenedAt)}</span></footer>}
   </article>;
 }
 
@@ -348,8 +350,28 @@ function SettingsPage({ settings, onSave, onImport, onExport }: { settings: AppS
   const [updateStatus, setUpdateStatus] = useState("点击检查是否有可用的新版本。");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(true);
+  const [autostartError, setAutostartError] = useState("");
   useEffect(() => setDraft(settings), [settings]);
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("未知")); }, []);
+  useEffect(() => {
+    void isAutostartEnabled().then(setAutostartEnabled).catch((error) => setAutostartError(`读取开机自启状态失败：${errorMessage(error)}`)).finally(() => setAutostartBusy(false));
+  }, []);
+
+  async function setAutostart(enabled: boolean) {
+    setAutostartBusy(true);
+    setAutostartError("");
+    try {
+      if (enabled) await enableAutostart();
+      else await disableAutostart();
+      setAutostartEnabled(await isAutostartEnabled());
+    } catch (error) {
+      setAutostartError(`设置开机自启失败：${errorMessage(error)}`);
+    } finally {
+      setAutostartBusy(false);
+    }
+  }
 
   async function checkForUpdate() {
     setUpdateBusy(true);
@@ -393,7 +415,7 @@ function SettingsPage({ settings, onSave, onImport, onExport }: { settings: AppS
     }
   }
 
-  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card"><div className="settings-title"><div><h2>软件更新</h2><p>当前版本 {appVersion}，更新包从 GitHub Releases 获取并校验签名。</p></div></div><div className="update-row"><div><strong>{updateStatus}</strong>{updateProgress !== null && <div className="update-progress"><i style={{ width: `${updateProgress}%` }} /></div>}</div>{availableUpdate ? <button className="primary-button" disabled={updateBusy} onClick={() => void installUpdate()}><Download size={17} />{updateBusy ? `下载中${updateProgress !== null ? ` ${updateProgress}%` : "…"}` : `更新到 ${availableUpdate.version}`}</button> : <button className="secondary-button" disabled={updateBusy} onClick={() => void checkForUpdate()}><RefreshCw size={17} />{updateBusy ? "检查中…" : "检查更新"}</button>}</div></section><section className="settings-card"><div className="settings-title"><div><h2>配置备份</h2><p>JSON 文件包含项目结构和平台配置，不包含任何真实代码文件。</p></div></div><div className="backup-actions"><button className="secondary-button" onClick={onImport}><Import size={17} />导入配置</button><button className="secondary-button" onClick={onExport}><ArchiveRestore size={17} />导出配置</button></div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
+  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card"><div className="settings-title"><div><h2>开机启动</h2><p>登录系统后自动运行 Project Hub。</p></div></div><label className="autostart-option"><input type="checkbox" checked={autostartEnabled} disabled={autostartBusy} onChange={(event) => void setAutostart(event.target.checked)} /><span>开机自启</span></label>{autostartError && <p className="setting-error" role="alert">{autostartError}</p>}</section><section className="settings-card"><div className="settings-title"><div><h2>软件更新</h2><p>当前版本 {appVersion}，更新包从 GitHub Releases 获取并校验签名。</p></div></div><div className="update-row"><div><strong>{updateStatus}</strong>{updateProgress !== null && <div className="update-progress"><i style={{ width: `${updateProgress}%` }} /></div>}</div>{availableUpdate ? <button className="primary-button" disabled={updateBusy} onClick={() => void installUpdate()}><Download size={17} />{updateBusy ? `下载中${updateProgress !== null ? ` ${updateProgress}%` : "…"}` : `更新到 ${availableUpdate.version}`}</button> : <button className="secondary-button" disabled={updateBusy} onClick={() => void checkForUpdate()}><RefreshCw size={17} />{updateBusy ? "检查中…" : "检查更新"}</button>}</div></section><section className="settings-card"><div className="settings-title"><div><h2>配置备份</h2><p>JSON 文件包含项目结构和平台配置，不包含任何真实代码文件。</p></div></div><div className="backup-actions"><button className="secondary-button" onClick={onImport}><Import size={17} />导入配置</button><button className="secondary-button" onClick={onExport}><ArchiveRestore size={17} />导出配置</button></div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
 }
 
 function ThemeOption({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button className={`theme-option ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span></button>; }
@@ -415,9 +437,9 @@ function TagEditor({ value, suggestions, onChange }: { value: string[]; suggesti
 }
 
 function ProjectModal({ project, tagSuggestions, onClose, onSave }: { project?: Project; tagSuggestions: string[]; onClose: () => void; onSave: (value: ProjectInput) => void }) {
-  const [name, setName] = useState(project?.name ?? ""); const [description, setDescription] = useState(project?.description ?? ""); const [tags, setTags] = useState(project?.tags ?? []); const [color, setColor] = useState(project?.color ?? colors[0]); const [favorite, setFavorite] = useState(project?.isFavorite ?? false);
+  const [name, setName] = useState(project?.name ?? ""); const [description, setDescription] = useState(project?.description ?? ""); const [tags, setTags] = useState(project?.tags ?? []); const [color, setColor] = useState(project?.color ?? colors[0]); const [favorite, setFavorite] = useState(project?.isFavorite ?? false); const [pinned, setPinned] = useState(project?.isPinned ?? false);
   const colorNames = ["紫色", "蓝色", "绿色", "橙色", "粉色", "青色"];
-  return <Modal title={project ? "编辑业务项目" : "新建业务项目"} subtitle="业务项目用于组织多个项目，本身不对应代码目录。" onClose={onClose}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ id: project?.id, name: name.trim(), description: description.trim(), tags, color, isFavorite: favorite, sortOrder: project?.sortOrder ?? 0 }); }}><label>业务项目名称<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="输入业务项目名称" /></label><label>业务项目说明（可选）<textarea value={description ?? ""} onChange={(event) => setDescription(event.target.value)} placeholder="补充业务项目说明" /></label><TagEditor value={tags} suggestions={tagSuggestions} onChange={setTags} /><label>业务项目颜色<div className="color-picker">{colors.map((item, index) => <button type="button" aria-label={`选择${colorNames[index]}`} title={colorNames[index]} key={item} className={color === item ? "selected" : ""} style={{ background: item }} onClick={() => setColor(item)} />)}</div></label><label className="checkbox-row"><input type="checkbox" checked={favorite} onChange={(event) => setFavorite(event.target.checked)} /><span><strong>收藏业务项目</strong><small>在收藏筛选和快速启动中优先展示</small></span></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!name.trim()}>{project ? "保存更改" : "创建业务项目"}</button></div></form></Modal>;
+  return <Modal title={project ? "编辑业务项目" : "新建业务项目"} subtitle="业务项目用于组织多个项目，本身不对应代码目录。" onClose={onClose}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ id: project?.id, name: name.trim(), description: description.trim(), tags, color, isFavorite: favorite, isPinned: pinned, sortOrder: project?.sortOrder ?? 0 }); }}><label>业务项目名称<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="输入业务项目名称" /></label><label>业务项目说明（可选）<textarea value={description ?? ""} onChange={(event) => setDescription(event.target.value)} placeholder="补充业务项目说明" /></label><TagEditor value={tags} suggestions={tagSuggestions} onChange={setTags} /><label>业务项目颜色<div className="color-picker">{colors.map((item, index) => <button type="button" aria-label={`选择${colorNames[index]}`} title={colorNames[index]} key={item} className={color === item ? "selected" : ""} style={{ background: item }} onClick={() => setColor(item)} />)}</div></label><label className="checkbox-row"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /><span><strong>置顶业务项目</strong><small>在主列表和托盘菜单最前显示</small></span></label><label className="checkbox-row"><input type="checkbox" checked={favorite} onChange={(event) => setFavorite(event.target.checked)} /><span><strong>收藏业务项目</strong><small>在收藏筛选和快速启动中优先展示</small></span></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!name.trim()}>{project ? "保存更改" : "创建业务项目"}</button></div></form></Modal>;
 }
 
 function ModuleModal({ project, module, definitions, installations, tagSuggestions, onClose, onSave }: { project: Project; module?: ProjectModule; definitions: IdeDefinition[]; installations: DashboardData["ideInstallations"]; tagSuggestions: string[]; onClose: () => void; onSave: (value: ModuleInput) => void }) {

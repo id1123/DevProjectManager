@@ -8,7 +8,7 @@ use models::*;
 use std::str::FromStr;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{
@@ -95,6 +95,26 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
         .build(app)
         .map_err(|e| e.to_string())?;
     let mut builder = MenuBuilder::new(app).item(&open_main);
+    for project in projects.iter().filter(|project| project.is_pinned) {
+        let mut submenu = SubmenuBuilder::with_id(
+            app,
+            format!("{TRAY_BUSINESS_PREFIX}{}", project.id),
+            format!("📌 {}", project.name),
+        );
+        for module in &project.modules {
+            let label = if module.name.is_empty() {
+                "未命名项目"
+            } else {
+                &module.name
+            };
+            let item =
+                MenuItemBuilder::with_id(format!("{TRAY_PROJECT_PREFIX}{}", module.id), label)
+                    .build(app)
+                    .map_err(|e| e.to_string())?;
+            submenu = submenu.item(&item);
+        }
+        builder = builder.item(&submenu.build().map_err(|e| e.to_string())?);
+    }
     if !recent.is_empty() {
         builder = builder.separator();
         for (_, module, project_name) in recent {
@@ -107,9 +127,9 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
         }
     }
 
-    if !projects.is_empty() {
+    if projects.iter().any(|project| !project.is_pinned) {
         builder = builder.separator();
-        for project in &projects {
+        for project in projects.iter().filter(|project| !project.is_pinned) {
             let mut submenu = SubmenuBuilder::with_id(
                 app,
                 format!("{TRAY_BUSINESS_PREFIX}{}", project.id),
@@ -308,6 +328,10 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -371,21 +395,11 @@ pub fn run() {
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&tray_menu)
                 .tooltip("Project Hub")
-                .show_menu_on_left_click(false);
+                .show_menu_on_left_click(true);
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
             tray.build(app).map_err(std::io::Error::other)?;
-            app.on_tray_icon_event(|app, event| {
-                if let TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                } = event
-                {
-                    show_main_window(app);
-                }
-            });
             if let Err(error) = register_shortcut(app.handle(), &shortcut) {
                 eprintln!("{error}");
             }

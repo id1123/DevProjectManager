@@ -168,7 +168,7 @@ pub fn save_project(db: &Connection, input: ProjectInput) -> Result<Project, Str
     let timestamp = now();
     let id = input.id.unwrap_or_else(new_id);
     let tags = serde_json::to_string(&normalize_tags(input.tags)).map_err(|e| e.to_string())?;
-    db.execute("INSERT INTO projects(id,name,description,icon,color,tags,is_favorite,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,icon=excluded.icon,color=excluded.color,tags=excluded.tags,is_favorite=excluded.is_favorite,sort_order=excluded.sort_order,updated_at=excluded.updated_at", params![id,name,input.description,input.icon,input.color,tags,if input.is_favorite{1}else{0},input.sort_order,timestamp]).map_err(|e|e.to_string())?;
+    db.execute("INSERT INTO projects(id,name,description,icon,color,tags,is_favorite,is_pinned,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,icon=excluded.icon,color=excluded.color,tags=excluded.tags,is_favorite=excluded.is_favorite,is_pinned=excluded.is_pinned,sort_order=excluded.sort_order,updated_at=excluded.updated_at", params![id,name,input.description,input.icon,input.color,tags,if input.is_favorite{1}else{0},if input.is_pinned{1}else{0},input.sort_order,timestamp]).map_err(|e|e.to_string())?;
     get_project(db, &id)?.ok_or_else(|| "保存项目失败".into())
 }
 
@@ -239,7 +239,7 @@ pub fn delete_module(db: &Connection, id: &str) -> Result<(), String> {
 }
 
 pub fn get_project(db: &Connection, id: &str) -> Result<Option<Project>, String> {
-    let project=db.query_row("SELECT p.id,p.name,p.description,p.icon,p.color,p.tags,p.is_favorite,p.sort_order,p.created_at,p.updated_at,(SELECT MAX(h.opened_at) FROM open_history h JOIN project_modules m ON m.id=h.module_id WHERE m.project_id=p.id AND h.result='started') FROM projects p WHERE p.id=?1",[id],|r|Ok(Project{id:r.get(0)?,name:r.get(1)?,description:r.get(2)?,icon:r.get(3)?,color:r.get(4)?,tags:json_tags(r.get(5)?),is_favorite:bool_from(r.get(6)?),sort_order:r.get(7)?,created_at:r.get(8)?,updated_at:r.get(9)?,modules:vec![],last_opened_at:r.get(10)?})).optional().map_err(|e|e.to_string())?;
+    let project=db.query_row("SELECT p.id,p.name,p.description,p.icon,p.color,p.tags,p.is_favorite,p.is_pinned,p.sort_order,p.created_at,p.updated_at,(SELECT MAX(h.opened_at) FROM open_history h JOIN project_modules m ON m.id=h.module_id WHERE m.project_id=p.id AND h.result='started') FROM projects p WHERE p.id=?1",[id],|r|Ok(Project{id:r.get(0)?,name:r.get(1)?,description:r.get(2)?,icon:r.get(3)?,color:r.get(4)?,tags:json_tags(r.get(5)?),is_favorite:bool_from(r.get(6)?),is_pinned:bool_from(r.get(7)?),sort_order:r.get(8)?,created_at:r.get(9)?,updated_at:r.get(10)?,modules:vec![],last_opened_at:r.get(11)?})).optional().map_err(|e|e.to_string())?;
     if let Some(mut p) = project {
         p.modules = list_modules_for_project(db, &p.id)?;
         Ok(Some(p))
@@ -249,7 +249,7 @@ pub fn get_project(db: &Connection, id: &str) -> Result<Option<Project>, String>
 }
 
 pub fn list_projects(db: &Connection) -> Result<Vec<Project>, String> {
-    let mut q=db.prepare("SELECT p.id,p.name,p.description,p.icon,p.color,p.tags,p.is_favorite,p.sort_order,p.created_at,p.updated_at,(SELECT MAX(h.opened_at) FROM open_history h JOIN project_modules m ON m.id=h.module_id WHERE m.project_id=p.id AND h.result='started') FROM projects p ORDER BY p.is_favorite DESC,p.sort_order,p.updated_at DESC").map_err(|e|e.to_string())?;
+    let mut q=db.prepare("SELECT p.id,p.name,p.description,p.icon,p.color,p.tags,p.is_favorite,p.is_pinned,p.sort_order,p.created_at,p.updated_at,(SELECT MAX(h.opened_at) FROM open_history h JOIN project_modules m ON m.id=h.module_id WHERE m.project_id=p.id AND h.result='started') FROM projects p ORDER BY p.is_pinned DESC,p.is_favorite DESC,p.sort_order,p.updated_at DESC").map_err(|e|e.to_string())?;
     let bare = q
         .query_map([], |r| {
             Ok(Project {
@@ -260,11 +260,12 @@ pub fn list_projects(db: &Connection) -> Result<Vec<Project>, String> {
                 color: r.get(4)?,
                 tags: json_tags(r.get(5)?),
                 is_favorite: bool_from(r.get(6)?),
-                sort_order: r.get(7)?,
-                created_at: r.get(8)?,
-                updated_at: r.get(9)?,
+                is_pinned: bool_from(r.get(7)?),
+                sort_order: r.get(8)?,
+                created_at: r.get(9)?,
+                updated_at: r.get(10)?,
                 modules: vec![],
-                last_opened_at: r.get(10)?,
+                last_opened_at: r.get(11)?,
             })
         })
         .map_err(|e| e.to_string())?

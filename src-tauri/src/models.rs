@@ -13,6 +13,8 @@ pub struct Project {
     #[serde(default)]
     pub tags: Vec<String>,
     pub is_favorite: bool,
+    #[serde(default)]
+    pub is_pinned: bool,
     pub sort_order: i64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -33,6 +35,8 @@ pub struct ProjectInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub is_favorite: bool,
+    #[serde(default)]
+    pub is_pinned: bool,
     #[serde(default)]
     pub sort_order: i64,
 }

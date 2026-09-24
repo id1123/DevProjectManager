@@ -35,6 +35,7 @@ export interface Project {
   color?: string | null;
   icon?: string | null;
   isFavorite: boolean;
+  isPinned: boolean;
   sortOrder: number;
   createdAt?: number;
   updatedAt?: number;
@@ -86,6 +87,7 @@ export interface ProjectInput {
   color?: string;
   icon?: string;
   isFavorite: boolean;
+  isPinned: boolean;
   sortOrder: number;
 }
 
