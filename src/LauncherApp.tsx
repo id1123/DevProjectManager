@@ -72,7 +72,8 @@ export default function LauncherApp() {
     };
   }, []);
 
-  const items = useMemo(() => searchLauncherItems(launcherItems(dashboard.projects, dashboard.ideDefinitions), query).slice(0, 9), [dashboard, query]);
+  const searchableItems = useMemo(() => launcherItems(dashboard.projects, dashboard.ideDefinitions), [dashboard.projects, dashboard.ideDefinitions]);
+  const items = useMemo(() => searchLauncherItems(searchableItems, query).slice(0, 9), [searchableItems, query]);
 
   useEffect(() => setSelected((value) => Math.min(value, Math.max(0, items.length - 1))), [items.length]);
 
