@@ -129,8 +129,11 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .project-summary { display: flex; align-items: center; min-width: 0; gap: 13px; }
 .project-summary > div:last-child { min-width: 0; }
 .project-name-line { display: flex; align-items: center; gap: 7px; }
-.project-name-line svg { color: #e0a028; }
-.project-name-line .pinned-icon, .pin-button.active { color: var(--primary); }
+.project-status-toggle { display: inline-grid; place-items: center; flex: 0 0 auto; width: 19px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: pointer; opacity: 0; pointer-events: none; }
+.project-status-toggle.active, .project-card:hover .project-status-toggle, .project-card:focus-within .project-status-toggle { opacity: 1; pointer-events: auto; }
+.project-status-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.pin-status { color: var(--primary); }
+.favorite-status { color: #e0a028; }
 .project-card-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 7px; }
 .project-card-actions > span { margin-right: 5px; color: var(--muted); font-size: 11px; }
 .project-inline-add { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line)); border-radius: 8px; color: var(--primary); background: var(--primary-soft); cursor: pointer; font-size: 11px; font-weight: 600; }
@@ -174,6 +177,7 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .compact-module-card:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); background: color-mix(in srgb, var(--primary-soft) 25%, var(--panel)); }
 .compact-module-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: -2px; }
 .compact-module-card strong { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.linked-badge { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--primary); background: var(--primary-soft); font-size: 9px; }
 .compact-empty { color: var(--muted); font-size: 11px; }
 .card-empty-modules { display: flex; align-items: center; gap: 12px; width: 100%; padding: 17px; border: 1px dashed var(--line); border-radius: 11px; color: var(--muted); background: var(--panel); cursor: pointer; text-align: left; }
 .card-empty-modules span { min-width: 0; flex: 1; }
@@ -340,6 +344,11 @@ details summary { display: grid; place-items: center; width: 33px; height: 33px;
 .checkbox-row input { margin-top: 3px; accent-color: var(--primary); }
 .checkbox-row strong, .checkbox-row small { display: block; }
 .checkbox-row small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.linked-launch > small { display: block; margin: -2px 0 9px; color: var(--muted); font-size: 10px; }
+.linked-launch-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.linked-launch-options label { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-muted); cursor: pointer; font-size: 11px; font-weight: 400; }
+.linked-launch-options label:has(input:checked) { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.linked-launch-options input { margin: 0; accent-color: var(--primary); }
 .segmented { display: flex; width: fit-content; margin-top: 7px; padding: 3px; border-radius: 8px; background: var(--panel-muted); }
 .segmented button { padding: 6px 14px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
 .segmented button.active { color: var(--primary); background: var(--panel); box-shadow: 0 2px 8px rgba(20,20,35,.08); }

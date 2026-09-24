@@ -201,8 +201,23 @@ pub fn save_module(db: &mut Connection, input: ModuleInput) -> Result<ProjectMod
     let timestamp = now();
     let id = input.id.unwrap_or_else(new_id);
     let tags = serde_json::to_string(&normalize_tags(input.tags)).map_err(|e| e.to_string())?;
+    let valid_module_ids = list_modules_for_project(db, &input.project_id)?
+        .into_iter()
+        .map(|module| module.id)
+        .collect::<HashSet<_>>();
+    let mut seen_linked = HashSet::new();
+    let linked_module_ids = input
+        .linked_module_ids
+        .into_iter()
+        .filter(|linked_id| {
+            linked_id != &id
+                && valid_module_ids.contains(linked_id)
+                && seen_linked.insert(linked_id.clone())
+        })
+        .collect::<Vec<_>>();
+    let linked_json = serde_json::to_string(&linked_module_ids).map_err(|e| e.to_string())?;
     let tx = db.transaction().map_err(|e| e.to_string())?;
-    tx.execute("INSERT INTO project_modules(id,project_id,name,module_type,description,tags,is_favorite,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,name=excluded.name,module_type=excluded.module_type,description=excluded.description,tags=excluded.tags,is_favorite=excluded.is_favorite,sort_order=excluded.sort_order,updated_at=excluded.updated_at",params![id,input.project_id,name,input.module_type,input.description,tags,if input.is_favorite {1}else{0},input.sort_order,timestamp]).map_err(|e|e.to_string())?;
+    tx.execute("INSERT INTO project_modules(id,project_id,name,module_type,description,tags,is_favorite,sort_order,linked_module_ids,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,name=excluded.name,module_type=excluded.module_type,description=excluded.description,tags=excluded.tags,is_favorite=excluded.is_favorite,sort_order=excluded.sort_order,linked_module_ids=excluded.linked_module_ids,updated_at=excluded.updated_at",params![id,input.project_id,name,input.module_type,input.description,tags,if input.is_favorite {1}else{0},input.sort_order,linked_json,timestamp]).map_err(|e|e.to_string())?;
     if let Some(path) = input.path {
         let p = path.path.trim().to_string();
         let status = validate_path(&p, &path.path_kind);
@@ -291,7 +306,7 @@ fn list_modules_query<P: rusqlite::Params>(
     where_sql: &str,
     params: P,
 ) -> Result<Vec<ProjectModule>, String> {
-    let sql=format!("SELECT m.id,m.project_id,m.name,m.module_type,m.description,m.tags,m.is_favorite,m.sort_order,m.created_at,m.updated_at,mp.platform,mp.path,mp.path_kind,mp.validation_status,mp.last_validated_at,lp.ide_id,lp.argument_template,(SELECT MAX(opened_at) FROM open_history h WHERE h.module_id=m.id AND h.result='started') FROM project_modules m LEFT JOIN module_paths mp ON mp.module_id=m.id AND mp.platform='{}' LEFT JOIN module_launch_profiles lp ON lp.module_id=m.id AND lp.platform='{}' {} ORDER BY m.is_favorite DESC,m.sort_order,m.updated_at DESC",platform(),platform(),where_sql);
+    let sql=format!("SELECT m.id,m.project_id,m.name,m.module_type,m.description,m.tags,m.is_favorite,m.sort_order,m.created_at,m.updated_at,mp.platform,mp.path,mp.path_kind,mp.validation_status,mp.last_validated_at,lp.ide_id,lp.argument_template,(SELECT MAX(opened_at) FROM open_history h WHERE h.module_id=m.id AND h.result='started'),m.linked_module_ids FROM project_modules m LEFT JOIN module_paths mp ON mp.module_id=m.id AND mp.platform='{}' LEFT JOIN module_launch_profiles lp ON lp.module_id=m.id AND lp.platform='{}' {} ORDER BY m.is_favorite DESC,m.sort_order,m.updated_at DESC",platform(),platform(),where_sql);
     let mut q = db.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = q
         .query_map(params, |r| {
@@ -322,6 +337,7 @@ fn list_modules_query<P: rusqlite::Params>(
                     .map(json_list)
                     .unwrap_or_else(|| vec!["{path}".into()]),
                 last_opened_at: r.get(17)?,
+                linked_module_ids: json_list(r.get(18)?),
             })
         })
         .map_err(|e| e.to_string())?;

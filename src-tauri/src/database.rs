@@ -138,6 +138,7 @@ fn migrate(db: &Connection) -> Result<(), String> {
         name TEXT NOT NULL, module_type TEXT NOT NULL, description TEXT,
         tags TEXT NOT NULL DEFAULT '[]',
         is_favorite INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+        linked_module_ids TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS module_paths (
@@ -215,6 +216,19 @@ fn migrate(db: &Connection) -> Result<(), String> {
         .map_err(|e| format!("升级置顶字段失败: {e}"))?;
     }
     db.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, strftime('%s','now'))", [])
+        .map_err(|e| format!("记录数据库迁移失败: {e}"))?;
+    let has_linked_modules: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_modules') WHERE name='linked_module_ids')",
+        [], |r| r.get(0),
+    ).map_err(|e| format!("检查联动启动字段迁移失败: {e}"))?;
+    if !has_linked_modules {
+        db.execute(
+            "ALTER TABLE project_modules ADD COLUMN linked_module_ids TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )
+        .map_err(|e| format!("升级联动启动字段失败: {e}"))?;
+    }
+    db.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (5, strftime('%s','now'))", [])
         .map_err(|e| format!("记录数据库迁移失败: {e}"))?;
     Ok(())
 }
@@ -358,6 +372,14 @@ mod tests {
             has_pinned,
             "projects should receive is_pinned during v4 migration"
         );
+        let has_linked: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_modules') WHERE name='linked_module_ids')",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(
+            has_linked,
+            "modules should receive linked_module_ids during v5 migration"
+        );
     }
 
     #[test]
@@ -384,6 +406,24 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .to_string();
+        let linked = repository::save_module(
+            &mut source,
+            ModuleInput {
+                id: None,
+                project_id: project.id.clone(),
+                name: "API".into(),
+                module_type: "api".into(),
+                description: None,
+                tags: vec![],
+                is_favorite: false,
+                sort_order: 1,
+                path: None,
+                ide_id: None,
+                argument_template: vec![],
+                linked_module_ids: vec![],
+            },
+        )
+        .unwrap();
         repository::save_module(
             &mut source,
             ModuleInput {
@@ -401,6 +441,7 @@ mod tests {
                 }),
                 ide_id: Some("webstorm".into()),
                 argument_template: vec!["{path}".into()],
+                linked_module_ids: vec![linked.id],
             },
         )
         .unwrap();
@@ -411,13 +452,17 @@ mod tests {
         seed_ides(&target).unwrap();
         let result = services::import_bundle(&mut target, bundle).unwrap();
         assert_eq!(result.projects_imported, 1);
-        assert_eq!(result.modules_imported, 1);
+        assert_eq!(result.modules_imported, 2);
         let imported = repository::list_projects(&target).unwrap();
         assert_eq!(imported[0].name, "业务项目");
         assert!(imported[0].is_pinned);
         assert_eq!(imported[0].modules[0].name, "Web");
         assert_eq!(imported[0].tags, vec!["验收", "核心"]);
         assert_eq!(imported[0].modules[0].tags, vec!["前端", "Web"]);
+        assert_eq!(
+            imported[0].modules[0].linked_module_ids,
+            vec![imported[0].modules[1].id.clone()]
+        );
     }
 
     #[test]

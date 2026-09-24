@@ -95,26 +95,6 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
         .build(app)
         .map_err(|e| e.to_string())?;
     let mut builder = MenuBuilder::new(app).item(&open_main);
-    for project in projects.iter().filter(|project| project.is_pinned) {
-        let mut submenu = SubmenuBuilder::with_id(
-            app,
-            format!("{TRAY_BUSINESS_PREFIX}{}", project.id),
-            format!("📌 {}", project.name),
-        );
-        for module in &project.modules {
-            let label = if module.name.is_empty() {
-                "未命名项目"
-            } else {
-                &module.name
-            };
-            let item =
-                MenuItemBuilder::with_id(format!("{TRAY_PROJECT_PREFIX}{}", module.id), label)
-                    .build(app)
-                    .map_err(|e| e.to_string())?;
-            submenu = submenu.item(&item);
-        }
-        builder = builder.item(&submenu.build().map_err(|e| e.to_string())?);
-    }
     if !recent.is_empty() {
         builder = builder.separator();
         for (_, module, project_name) in recent {
@@ -127,9 +107,9 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
         }
     }
 
-    if projects.iter().any(|project| !project.is_pinned) {
+    if !projects.is_empty() {
         builder = builder.separator();
-        for project in projects.iter().filter(|project| !project.is_pinned) {
+        for project in &projects {
             let mut submenu = SubmenuBuilder::with_id(
                 app,
                 format!("{TRAY_BUSINESS_PREFIX}{}", project.id),

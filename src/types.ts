@@ -12,6 +12,7 @@ export interface ProjectModule {
   path?: ModulePath | null;
   ideId?: string | null;
   argumentTemplate: string[];
+  linkedModuleIds: string[];
   isFavorite: boolean;
   sortOrder: number;
   createdAt?: number;
@@ -101,6 +102,7 @@ export interface ModuleInput {
   path?: { path: string; pathKind: PathKind } | null;
   ideId?: string | null;
   argumentTemplate: string[];
+  linkedModuleIds: string[];
   isFavorite: boolean;
   sortOrder: number;
 }

@@ -58,6 +58,8 @@ pub struct ProjectModule {
     pub path: Option<ModulePath>,
     pub ide_id: Option<String>,
     pub argument_template: Vec<String>,
+    #[serde(default)]
+    pub linked_module_ids: Vec<String>,
     pub last_opened_at: Option<i64>,
 }
 
@@ -79,6 +81,8 @@ pub struct ModuleInput {
     pub ide_id: Option<String>,
     #[serde(default)]
     pub argument_template: Vec<String>,
+    #[serde(default)]
+    pub linked_module_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

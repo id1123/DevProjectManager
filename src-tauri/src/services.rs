@@ -389,27 +389,48 @@ pub fn launch_module(
     module_id: &str,
     override_ide_id: Option<String>,
 ) -> Result<LaunchResult, String> {
+    let project = list_projects(db)?
+        .into_iter()
+        .find(|project| project.modules.iter().any(|module| module.id == module_id))
+        .ok_or_else(|| "找不到要打开的项目".to_string())?;
+    let module = project
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .ok_or_else(|| "找不到要打开的项目".to_string())?;
+    let installations = list_installations(db)?;
+    let mut linked_count = 0;
+    for linked_id in &module.linked_module_ids {
+        if let Some(linked) = project.modules.iter().find(|item| &item.id == linked_id) {
+            launch_single_module(db, &project, linked, None, &installations)
+                .map_err(|error| format!("联动项目“{}”启动失败：{error}", linked.name))?;
+            linked_count += 1;
+        }
+    }
+    let mut result = launch_single_module(db, &project, module, override_ide_id, &installations)?;
+    if linked_count > 0 {
+        result.message = format!("已提交 {linked_count} 个联动项目和当前项目启动");
+    }
+    Ok(result)
+}
+
+fn launch_single_module(
+    db: &Connection,
+    project: &Project,
+    module: &ProjectModule,
+    override_ide_id: Option<String>,
+    installations: &[IdeInstallation],
+) -> Result<LaunchResult, String> {
     let last_started = db
         .query_row(
             "SELECT MAX(opened_at) FROM open_history WHERE module_id=?1 AND result='started'",
-            [module_id],
+            [module.id.as_str()],
             |r| r.get::<_, Option<i64>>(0),
         )
         .map_err(|e| e.to_string())?;
     if last_started.is_some_and(|value| now() - value < 2) {
         return Err("该项目刚刚已经提交打开，请勿重复操作。".into());
     }
-    let project_and_module = list_projects(db)?
-        .into_iter()
-        .find_map(|p| {
-            p.modules
-                .iter()
-                .find(|m| m.id == module_id)
-                .cloned()
-                .map(|m| (p, m))
-        })
-        .ok_or_else(|| "找不到要打开的项目".to_string())?;
-    let (project, module) = project_and_module;
     let target = module
         .path
         .clone()
@@ -424,8 +445,8 @@ pub fn launch_module(
     let ide_id = override_ide_id
         .or(module.ide_id.clone())
         .ok_or_else(|| format!("{} / {} 未指定 IDE", project.name, module.name))?;
-    let installation = list_installations(db)?
-        .into_iter()
+    let installation = installations
+        .iter()
         .find(|x| {
             x.ide_id == ide_id && x.platform == platform() && x.enabled && x.status == "available"
         })
@@ -477,10 +498,13 @@ pub fn launch_module(
         Ok(_) => {
             record_history(db, &module.id, Some(&ide_id), "started", None)?;
             Ok(LaunchResult {
-                module_id: module.id,
-                project_name: project.name,
-                module_name: module.name,
-                ide_name: installation.ide_name.unwrap_or(installation.ide_id),
+                module_id: module.id.clone(),
+                project_name: project.name.clone(),
+                module_name: module.name.clone(),
+                ide_name: installation
+                    .ide_name
+                    .clone()
+                    .unwrap_or_else(|| installation.ide_id.clone()),
                 path: target.path,
                 started: true,
                 message: "已提交给操作系统启动".into(),
@@ -676,6 +700,24 @@ pub fn import_bundle(db: &mut Connection, bundle: ExportBundle) -> Result<Import
             tx.execute("INSERT INTO project_modules(id,project_id,name,module_type,description,tags,is_favorite,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",params![mid,pid,module.name,module.module_type,module.description,module_tags,if module.is_favorite{1}else{0},module.sort_order,timestamp]).map_err(|e|e.to_string())?;
             result.modules_imported += 1;
         }
+    }
+    for module in bundle.projects.iter().flat_map(|project| &project.modules) {
+        let Some(new_id) = ids.get(&module.id) else {
+            continue;
+        };
+        let linked_ids = module
+            .linked_module_ids
+            .iter()
+            .filter_map(|old_id| ids.get(old_id))
+            .filter(|linked_id| *linked_id != new_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let linked_json = serde_json::to_string(&linked_ids).map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE project_modules SET linked_module_ids=?1 WHERE id=?2",
+            params![linked_json, new_id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     let configs = if bundle.module_platform_configs.is_empty() {
         // compatibility with v1 previews that exported only the current UI path
