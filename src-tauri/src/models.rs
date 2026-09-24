@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const EXPORT_SCHEMA_VERSION: u32 = 2;
 
@@ -184,6 +185,8 @@ pub struct AppSettings {
     pub global_shortcut: String,
     pub launcher_width: i64,
     pub launcher_height: i64,
+    #[serde(default)]
+    pub default_ide_ids: HashMap<String, String>,
 }
 
 impl Default for AppSettings {
@@ -193,6 +196,7 @@ impl Default for AppSettings {
             global_shortcut: "CommandOrControl+Shift+P".into(),
             launcher_width: 720,
             launcher_height: 440,
+            default_ide_ids: HashMap::new(),
         }
     }
 }
@@ -249,4 +253,18 @@ pub struct ModulePlatformConfig {
     pub ide_id: Option<String>,
     #[serde(default)]
     pub argument_template: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    #[test]
+    fn old_settings_without_default_apps_still_load() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"theme":"system","globalShortcut":"CommandOrControl+Shift+P","launcherWidth":720,"launcherHeight":440}"#,
+        )
+        .unwrap();
+        assert!(settings.default_ide_ids.is_empty());
+    }
 }

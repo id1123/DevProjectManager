@@ -11,9 +11,12 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_global_shortcut::{
     Builder as GlobalShortcutBuilder, GlobalShortcutExt, Shortcut, ShortcutState,
 };
+
+const AUTOSTART_ARG: &str = "--autostart";
 
 fn with_db<T>(
     state: &State<AppState>,
@@ -199,6 +202,19 @@ fn save_module(
     Ok(module)
 }
 #[tauri::command]
+fn reorder_modules(
+    project_id: String,
+    module_ids: Vec<String>,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    with_db(&state, |db| {
+        repository::reorder_modules(db, &project_id, &module_ids)
+    })?;
+    refresh_tray_menu(&app);
+    Ok(())
+}
+#[tauri::command]
 fn delete_module(id: String, app: AppHandle, state: State<AppState>) -> Result<(), String> {
     with_db(&state, |db| repository::delete_module(db, &id))?;
     refresh_tray_menu(&app);
@@ -304,13 +320,15 @@ pub fn run() {
     tauri::Builder::default()
         // Register this first so a second process hands off to the existing
         // process before any other plugin initializes.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|arg| arg == AUTOSTART_ARG) {
+                show_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![AUTOSTART_ARG]),
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -383,6 +401,15 @@ pub fn run() {
             if let Err(error) = register_shortcut(app.handle(), &shortcut) {
                 eprintln!("{error}");
             }
+            let autostart = app.autolaunch();
+            if matches!(autostart.is_enabled(), Ok(true)) {
+                if let Err(error) = autostart.enable() {
+                    eprintln!("更新开机自启参数失败：{error}");
+                }
+            }
+            if !std::env::args().any(|arg| arg == AUTOSTART_ARG) {
+                show_main_window(app.handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -392,6 +419,7 @@ pub fn run() {
             save_project,
             delete_project,
             save_module,
+            reorder_modules,
             delete_module,
             list_ide_definitions,
             list_ide_installations,

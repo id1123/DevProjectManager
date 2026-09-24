@@ -9,7 +9,7 @@ const empty: DashboardData = {
   projects: [],
   ideDefinitions: [],
   ideInstallations: [],
-  settings: { theme: "system", globalShortcut: "CommandOrControl+Shift+P", launcherWidth: 720, launcherHeight: 440 },
+  settings: { theme: "system", globalShortcut: "CommandOrControl+Shift+P", launcherWidth: 720, launcherHeight: 440, defaultIdeIds: {} },
 };
 
 function highlightSearchText(text: string, query: string, keyPrefix: string): ReactNode {

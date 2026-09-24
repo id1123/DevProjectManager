@@ -1,6 +1,6 @@
 [package]
 name = "devprojectmanager"
-version = "0.7.0"
+version = "0.7.1"
 description = "Cross-platform local development project manager"
 authors = ["Project Hub"]
 edition = "2021"

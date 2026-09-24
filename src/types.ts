@@ -71,6 +71,7 @@ export interface AppSettings {
   globalShortcut: string;
   launcherWidth: number;
   launcherHeight: number;
+  defaultIdeIds: Partial<Record<"api" | "web" | "app", string>>;
 }
 
 export interface DashboardData {

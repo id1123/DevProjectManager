@@ -253,6 +253,35 @@ pub fn delete_module(db: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn reorder_modules(
+    db: &mut Connection,
+    project_id: &str,
+    module_ids: &[String],
+) -> Result<(), String> {
+    let existing = db
+        .prepare("SELECT id FROM project_modules WHERE project_id=?1")
+        .map_err(|e| e.to_string())?
+        .query_map([project_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if existing.len() != module_ids.len()
+        || module_ids.iter().collect::<HashSet<_>>().len() != module_ids.len()
+        || module_ids.iter().any(|id| !existing.contains(id))
+    {
+        return Err("项目排序列表与当前业务项目不一致，请刷新后重试".into());
+    }
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+    for (index, id) in module_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE project_modules SET sort_order=?1 WHERE id=?2 AND project_id=?3",
+            params![index as i64, id, project_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
 pub fn get_project(db: &Connection, id: &str) -> Result<Option<Project>, String> {
     let project=db.query_row("SELECT p.id,p.name,p.description,p.icon,p.color,p.tags,p.is_favorite,p.is_pinned,p.sort_order,p.created_at,p.updated_at,(SELECT MAX(h.opened_at) FROM open_history h JOIN project_modules m ON m.id=h.module_id WHERE m.project_id=p.id AND h.result='started') FROM projects p WHERE p.id=?1",[id],|r|Ok(Project{id:r.get(0)?,name:r.get(1)?,description:r.get(2)?,icon:r.get(3)?,color:r.get(4)?,tags:json_tags(r.get(5)?),is_favorite:bool_from(r.get(6)?),is_pinned:bool_from(r.get(7)?),sort_order:r.get(8)?,created_at:r.get(9)?,updated_at:r.get(10)?,modules:vec![],last_opened_at:r.get(11)?})).optional().map_err(|e|e.to_string())?;
     if let Some(mut p) = project {
@@ -306,7 +335,7 @@ fn list_modules_query<P: rusqlite::Params>(
     where_sql: &str,
     params: P,
 ) -> Result<Vec<ProjectModule>, String> {
-    let sql=format!("SELECT m.id,m.project_id,m.name,m.module_type,m.description,m.tags,m.is_favorite,m.sort_order,m.created_at,m.updated_at,mp.platform,mp.path,mp.path_kind,mp.validation_status,mp.last_validated_at,lp.ide_id,lp.argument_template,(SELECT MAX(opened_at) FROM open_history h WHERE h.module_id=m.id AND h.result='started'),m.linked_module_ids FROM project_modules m LEFT JOIN module_paths mp ON mp.module_id=m.id AND mp.platform='{}' LEFT JOIN module_launch_profiles lp ON lp.module_id=m.id AND lp.platform='{}' {} ORDER BY m.is_favorite DESC,m.sort_order,m.updated_at DESC",platform(),platform(),where_sql);
+    let sql=format!("SELECT m.id,m.project_id,m.name,m.module_type,m.description,m.tags,m.is_favorite,m.sort_order,m.created_at,m.updated_at,mp.platform,mp.path,mp.path_kind,mp.validation_status,mp.last_validated_at,lp.ide_id,lp.argument_template,(SELECT MAX(opened_at) FROM open_history h WHERE h.module_id=m.id AND h.result='started'),m.linked_module_ids FROM project_modules m LEFT JOIN module_paths mp ON mp.module_id=m.id AND mp.platform='{}' LEFT JOIN module_launch_profiles lp ON lp.module_id=m.id AND lp.platform='{}' {} ORDER BY m.sort_order,m.updated_at DESC",platform(),platform(),where_sql);
     let mut q = db.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = q
         .query_map(params, |r| {
@@ -343,4 +372,40 @@ fn list_modules_query<P: rusqlite::Params>(
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reorder_modules_updates_only_the_requested_project() {
+        let mut db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE project_modules (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, sort_order INTEGER NOT NULL);
+             INSERT INTO project_modules VALUES ('a', 'first', 0), ('b', 'first', 1), ('c', 'first', 2), ('other', 'second', 0);",
+        )
+        .unwrap();
+
+        reorder_modules(&mut db, "first", &["c".into(), "a".into(), "b".into()]).unwrap();
+        let order = db
+            .prepare("SELECT id FROM project_modules WHERE project_id='first' ORDER BY sort_order")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(order, ["c", "a", "b"]);
+        assert!(
+            reorder_modules(&mut db, "first", &["a".into(), "a".into(), "other".into()]).is_err()
+        );
+        let other_order: i64 = db
+            .query_row(
+                "SELECT sort_order FROM project_modules WHERE id='other'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(other_order, 0);
+    }
 }

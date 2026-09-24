@@ -129,8 +129,8 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .project-summary { display: flex; align-items: center; min-width: 0; gap: 13px; }
 .project-summary > div:last-child { min-width: 0; }
 .project-name-line { display: flex; align-items: center; gap: 7px; }
-.project-status-toggle { display: inline-grid; place-items: center; flex: 0 0 auto; width: 19px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: pointer; opacity: .55; transition: opacity .16s ease; }
-.project-status-toggle.active, .project-status-toggle:hover, .project-card:focus-within .project-status-toggle { opacity: 1; }
+.project-status-toggle { display: inline-grid; place-items: center; flex: 0 0 auto; width: 19px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: pointer; opacity: 0; transition: opacity .16s ease; }
+.project-status-toggle.active, .project-card:hover .project-status-toggle, .project-status-toggle:focus-visible { opacity: 1; }
 .project-status-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
 .pin-status { color: var(--primary); }
 .favorite-status { color: #e0a028; }
@@ -233,6 +233,12 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .section-heading p { margin: 0; color: var(--muted); font-size: 12px; }
 .module-list { display: flex; flex-direction: column; gap: 8px; max-width: 1180px; margin: 0 auto; }
 .module-row { display: flex; align-items: center; gap: 11px; min-height: 88px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+.module-row.dragging { opacity: .45; }
+.module-row.drop-before { box-shadow: 0 -3px 0 var(--primary); }
+.module-row.drop-after { box-shadow: 0 3px 0 var(--primary); }
+.module-drag-handle { display: grid; place-items: center; flex: 0 0 auto; width: 22px; height: 32px; color: var(--subtle); cursor: grab; touch-action: none; user-select: none; }
+.module-drag-handle:active { cursor: grabbing; }
+.module-drag-handle:focus-visible { outline: 2px solid var(--primary); border-radius: 5px; }
 .module-icon { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px; }
 .module-main { min-width: 0; flex: 1; }
 .module-name { display: flex; align-items: center; gap: 8px; }
@@ -242,6 +248,7 @@ kbd { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 
 .path.invalid { color: var(--danger); }
 .module-meta { color: var(--subtle); font-size: 10px; }
 .module-actions { display: flex; align-items: center; gap: 8px; }
+.module-delete-action { color: var(--danger); }
 .split-action { display: flex; align-items: stretch; }
 .split-action > .module-launch-button { border-color: color-mix(in srgb, var(--primary) 42%, var(--line)); border-radius: 8px 0 0 8px; color: var(--primary); background: var(--primary-soft); }
 .split-action > .module-launch-button:hover { border-color: var(--primary); background: color-mix(in srgb, var(--primary-soft) 72%, var(--panel)); }
@@ -286,6 +293,10 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 .settings-stack .update-row { flex-wrap: wrap; gap: 8px; }
 .settings-stack .backup-actions { flex-wrap: wrap; }
 .settings-stack .save-row { grid-column: 1 / -1; }
+.default-ide-settings { grid-column: 1 / -1; }
+.default-ide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.default-ide-grid label { color: var(--muted); font-size: 11px; font-weight: 600; }
+.default-ide-grid select { display: block; width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--panel-muted); font-size: 12px; }
 .autostart-option { display: flex; align-items: center; gap: 9px; font-size: 12px; cursor: pointer; }
 .autostart-option input { accent-color: var(--primary); cursor: pointer; }
 .autostart-option input:disabled { cursor: wait; }
@@ -326,6 +337,7 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 .ide-actions { display: flex; align-items: center; gap: 4px; }
 
 .modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20, 19, 29, .5); animation: backdrop-in .14s ease-out both; }
+.modal-backdrop.nested { z-index: 60; }
 .modal { display: flex; flex-direction: column; width: min(470px, 96vw); max-height: calc(100vh - 40px); padding: 20px 22px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); animation: modal-in .18s ease-out both; }
 @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -421,7 +433,7 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 170px minmax(0, 1fr); }
   .main-content { padding: 18px; }
-  .module-actions > .secondary-button { display: none; }
+  .module-actions > .reveal-directory-button { display: none; }
   .reveal-menu-action { display: block; }
   .recent-project-row { grid-template-columns: 38px minmax(0, 1fr) minmax(85px, auto) 30px 50px; }
   .recent-project-context { display: none; }
@@ -439,6 +451,7 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 
 @media (max-width: 680px) {
   .settings-stack { grid-template-columns: 1fr; }
+  .default-ide-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

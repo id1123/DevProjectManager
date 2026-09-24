@@ -11,6 +11,7 @@ import type {
 export const api = {
   dashboard: () => invoke<DashboardData>("get_dashboard"),
   saveProject: (project: ProjectInput) => invoke("save_project", { input: project }),
+  reorderModules: (projectId: string, moduleIds: string[]) => invoke("reorder_modules", { projectId, moduleIds }),
   deleteProject: (id: string) => invoke("delete_project", { id }),
   saveModule: (module: ModuleInput) => invoke("save_module", { input: module }),
   deleteModule: (id: string) => invoke("delete_module", { id }),
