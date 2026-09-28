@@ -384,6 +384,16 @@ fn windows_command_line(executable: &Path, args: &[String]) -> String {
         .join(" ")
 }
 
+#[cfg(target_os = "windows")]
+fn windows_batch_command(executable: &Path, args: &[String]) -> Command {
+    let mut command = Command::new("cmd.exe");
+    configure_hidden_console(&mut command);
+    command
+        .args(["/D", "/S", "/C"])
+        .raw_arg(format!("\"{}\"", windows_command_line(executable, args)));
+    command
+}
+
 pub fn launch_module(
     db: &Connection,
     module_id: &str,
@@ -473,12 +483,7 @@ fn launch_single_module(
                 resolved.extension().and_then(|x| x.to_str()),
                 Some("cmd" | "bat")
             ) {
-                let mut command = Command::new("cmd.exe");
-                configure_hidden_console(&mut command);
-                command
-                    .args(["/D", "/S", "/C"])
-                    .arg(windows_command_line(&resolved, &args))
-                    .spawn()
+                windows_batch_command(&resolved, &args).spawn()
             } else {
                 let mut command = Command::new(&resolved);
                 configure_hidden_console(&mut command);
@@ -609,6 +614,33 @@ mod tests {
             line,
             r#""C:\Tools\VS Code\bin\code.cmd" "D:\项目 目录\API" "--reuse-window""#
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_batch_command_runs_script_with_spaces_in_paths() {
+        use super::windows_batch_command;
+        use std::fs;
+
+        let dir =
+            std::env::temp_dir().join(format!("project hub batch test {}", uuid::Uuid::new_v4()));
+        fs::create_dir(&dir).unwrap();
+        let script = dir.join("print argument.cmd");
+        fs::write(&script, "@echo off\r\necho %~1\r\n").unwrap();
+
+        let argument = r"D:\Project Hub\API".to_string();
+        let output = windows_batch_command(&script, &[argument.clone()])
+            .output()
+            .unwrap();
+        fs::remove_file(&script).unwrap();
+        fs::remove_dir(&dir).unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), argument);
     }
 }
 
