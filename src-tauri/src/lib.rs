@@ -54,6 +54,7 @@ const TRAY_QUIT: &str = "tray-quit";
 const TRAY_RECENT_PREFIX: &str = "tray-recent-";
 const TRAY_BUSINESS_PREFIX: &str = "tray-business-";
 const TRAY_PROJECT_PREFIX: &str = "tray-project-";
+const PROJECT_LAUNCHED_EVENT: &str = "project://launched";
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -293,6 +294,9 @@ fn launch_module(
     let result = with_db(&state, |db| services::launch_module(db, &module_id, ide_id));
     if result.is_ok() {
         refresh_tray_menu(&app);
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.emit(PROJECT_LAUNCHED_EVENT, ());
+        }
     }
     result
 }
@@ -368,6 +372,9 @@ pub fn run() {
                     eprintln!("托盘项目启动失败：{error}");
                 } else {
                     refresh_tray_menu(app);
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit(PROJECT_LAUNCHED_EVENT, ());
+                    }
                 }
             }
         })

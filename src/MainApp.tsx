@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -114,6 +115,10 @@ export default function MainApp() {
 
   useEffect(() => {
     void refresh();
+    const unlistenPromise = getCurrentWindow().listen("project://launched", () => {
+      void refresh(true);
+    });
+    return () => { void unlistenPromise.then((unlisten) => unlisten()); };
   }, []);
 
   useEffect(() => {
