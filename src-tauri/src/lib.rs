@@ -102,7 +102,16 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
     if !recent.is_empty() {
         builder = builder.separator();
         for (_, module, project_name) in recent {
-            let label = format!("{} · {}", module.name, project_name);
+            let label = if module.linked_module_ids.is_empty() {
+                format!("{} · {}", module.name, project_name)
+            } else {
+                format!(
+                    "{} · {}（联动 {}）",
+                    module.name,
+                    project_name,
+                    module.linked_module_ids.len()
+                )
+            };
             let item =
                 MenuItemBuilder::with_id(format!("{TRAY_RECENT_PREFIX}{}", module.id), label)
                     .build(app)
@@ -120,10 +129,15 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
                 &project.name,
             );
             for module in &project.modules {
-                let label = if module.name.is_empty() {
+                let name = if module.name.is_empty() {
                     "未命名项目"
                 } else {
                     &module.name
+                };
+                let label = if module.linked_module_ids.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}（联动 {}）", module.linked_module_ids.len())
                 };
                 let item =
                     MenuItemBuilder::with_id(format!("{TRAY_PROJECT_PREFIX}{}", module.id), label)

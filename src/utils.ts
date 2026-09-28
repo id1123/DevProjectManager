@@ -76,10 +76,8 @@ export function searchLauncherItems(items: LauncherItem[], query: string) {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return sortLauncherItems(items);
 
-  // A project-name match is decisive. Do not let a shared parent path or IDE
-  // pull sibling projects from the same business project into the results.
+  // Exact module names rank first, but must not hide other matching names.
   const exactNameMatches = items.filter((item) => item.module.name.trim().toLocaleLowerCase() === normalized);
-  if (exactNameMatches.length) return sortLauncherItems(exactNameMatches);
 
   // Search module names in both Chinese and pinyin. Keep the name-match
   // boundary decisive so a matching module is not accompanied by its
@@ -91,7 +89,13 @@ export function searchLauncherItems(items: LauncherItem[], query: string) {
     const pinyinQuery = compactLatinQuery(normalized);
     return pinyinQuery.length > 0 && forms.some((form) => form.includes(pinyinQuery));
   });
-  if (nameMatches.length) return sortLauncherItems(nameMatches);
+  if (nameMatches.length) {
+    const exactIds = new Set(exactNameMatches.map((item) => item.module.id));
+    return [
+      ...sortLauncherItems(exactNameMatches),
+      ...sortLauncherItems(nameMatches.filter((item) => !exactIds.has(item.module.id))),
+    ];
+  }
 
   const fuse = new Fuse(items, {
     keys: ["module.tags", "module.description", "module.moduleType", "ide.name", "module.path.path"],

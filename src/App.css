@@ -405,6 +405,8 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 .launcher-item.selected { background: var(--primary-soft); }
 .launcher-item .module-icon { width: 36px; height: 36px; }
 .launcher-copy { min-width: 0; flex: 1; }
+.launcher-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.launcher-title strong { min-width: 0; }
 .launcher-copy strong, .launcher-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .launcher-copy strong { margin-bottom: 3px; font-size: 12px; }
 .launcher-copy strong span { color: var(--subtle); font-weight: 400; }
