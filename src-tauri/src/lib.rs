@@ -1,4 +1,5 @@
 mod database;
+mod git;
 mod models;
 mod repository;
 mod services;
@@ -170,6 +171,31 @@ fn refresh_tray_menu(app: &AppHandle) {
     }
 }
 
+#[tauri::command]
+async fn git_statuses(paths: Vec<String>) -> Result<Vec<git::GitProjectStatus>, String> {
+    // One blocking batch at a time, including requests from other windows.
+    static GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = GATE.lock().map_err(|_| "Git 查询锁不可用".to_string())?;
+        Ok(git::query(paths))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn open_project_terminal(module_id: String, state: State<AppState>) -> Result<(), String> {
+    let path = with_db(&state, |db| {
+        repository::list_projects(db)?
+            .into_iter()
+            .flat_map(|p| p.modules)
+            .find(|m| m.id == module_id)
+            .and_then(|m| m.path)
+            .map(|p| p.path)
+            .ok_or_else(|| "项目未配置当前平台路径".to_string())
+    })?;
+    services::open_project_terminal(&path)
+}
 #[tauri::command]
 fn get_dashboard(state: State<AppState>) -> Result<Dashboard, String> {
     with_db(&state, |db| {
@@ -455,6 +481,8 @@ pub fn run() {
             hide_launcher_window,
             launch_module,
             reveal_module_path,
+            git_statuses,
+            open_project_terminal,
             export_config,
             import_config
         ])

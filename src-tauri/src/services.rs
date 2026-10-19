@@ -798,3 +798,118 @@ pub fn import_bundle(db: &mut Connection, bundle: ExportBundle) -> Result<Import
     put_settings(db, &bundle.settings)?;
     Ok(result)
 }
+
+/// Resolve the directory from the actual filesystem, shared by terminal launch and tests.
+fn terminal_directory(path: &str) -> Result<PathBuf, String> {
+    let target = Path::new(path);
+    if !target.exists() {
+        return Err(format!("路径不存在：{path}"));
+    }
+    let directory = if target.is_file() {
+        target.parent().ok_or("文件没有所在目录")?
+    } else {
+        target
+    };
+    fs::canonicalize(directory).map_err(|e| format!("无法访问项目目录：{e}"))
+}
+
+pub fn open_project_terminal(path: &str) -> Result<(), String> {
+    let directory = terminal_directory(path)?;
+    #[cfg(target_os = "windows")]
+    {
+        // Normalize Win32 extended paths for terminal applications.
+        let raw = directory.to_string_lossy();
+        let directory = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{unc}"))
+        } else if let Some(local) = raw.strip_prefix(r"\\?\") {
+            PathBuf::from(local)
+        } else {
+            directory
+        };
+        // WT interprets semicolons as command separators even inside an argument.
+        // Use PowerShell for these paths; it inherits cwd without evaluating path text.
+        if !directory.to_string_lossy().contains(';') {
+            let mut terminal = Command::new("wt.exe");
+            configure_hidden_console(&mut terminal);
+            if let Ok(mut child) = terminal
+                .arg("-d")
+                .arg(&directory)
+                .current_dir(&directory)
+                .spawn()
+            {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                match child.try_wait() {
+                    Ok(Some(status)) if !status.success() => {}
+                    Ok(_) => return Ok(()),
+                    Err(_) => {}
+                }
+            }
+        }
+        let mut shell = Command::new("powershell.exe");
+        shell
+            .args(["-NoLogo", "-NoProfile", "-NoExit"])
+            .current_dir(&directory);
+        shell.creation_flags(0x00000010); // CREATE_NEW_CONSOLE: intentionally visible.
+        shell
+            .spawn()
+            .map_err(|e| format!("无法打开 Windows Terminal 或 PowerShell：{e}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .args(["-a", "Terminal"])
+            .arg(&directory)
+            .status()
+            .map_err(|e| format!("无法打开 Terminal：{e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Terminal 启动失败：{status}"))
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = directory;
+        Err("当前系统暂不支持打开终端".into())
+    }
+}
+
+#[cfg(test)]
+mod terminal_tests {
+    use super::*;
+    #[test]
+    fn resolves_files_and_special_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "project-hub-中文 空格 & ' ; {}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("项目.sln");
+        fs::write(&file, "").unwrap();
+        let expected = fs::canonicalize(&root).unwrap();
+        assert_eq!(
+            terminal_directory(root.to_str().unwrap()).unwrap(),
+            expected
+        );
+        assert_eq!(
+            terminal_directory(file.to_str().unwrap()).unwrap(),
+            expected
+        );
+        assert!(terminal_directory(root.join("missing").to_str().unwrap()).is_err());
+        #[cfg(target_os = "windows")]
+        {
+            let mut probe = Command::new("powershell.exe");
+            configure_hidden_console(&mut probe);
+            let output = probe.args(["-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); (Get-Location).Path"])
+                .current_dir(&root).output().unwrap();
+            assert!(output.status.success());
+            let actual = String::from_utf8(output.stdout).unwrap();
+            assert_eq!(
+                fs::canonicalize(actual.trim().trim_start_matches('\u{feff}')).unwrap(),
+                expected
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}

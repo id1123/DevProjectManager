@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -15,6 +16,7 @@ import {
   Code2,
   Download,
   ExternalLink,
+  GitBranch,
   FileCode2,
   FolderOpen,
   GripVertical,
@@ -99,8 +101,27 @@ export default function MainApp() {
   const [confirm, setConfirm] = useState<{ title: string; body: string; action: () => Promise<boolean> } | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const toastTimer = useRef<number | null>(null);
+  const [gitStatuses, setGitStatuses] = useState<Record<string, import("./types").GitStatus>>({});
+  const [gitLoading, setGitLoading] = useState(false);
 
   const selectedProject = dashboard.projects.find((project) => project.id === selectedProjectId);
+
+  const gitPathsKey = JSON.stringify([...new Set(dashboard.projects.flatMap(p => p.modules).map(m => m.path?.path).filter((p): p is string => !!p))].sort());
+  const gitRequest = useRef(0);
+  const gitBusy = useRef(false);
+  const latestGitPaths = useRef(gitPathsKey);
+  latestGitPaths.current = gitPathsKey;
+  async function refreshGit(paths = JSON.parse(gitPathsKey) as string[]) {
+    if (gitBusy.current) return;
+    const pathsKey = JSON.stringify(paths);
+    const request = ++gitRequest.current;
+    gitBusy.current = true;
+    setGitLoading(true);
+    try { const rows = await api.gitStatuses(paths); if (request === gitRequest.current && pathsKey === latestGitPaths.current) setGitStatuses(Object.fromEntries(rows.map(row => [row.path, row]))); }
+    catch (e) { notify("error", errorMessage(e)); } finally { gitBusy.current = false; setGitLoading(false); if (pathsKey !== latestGitPaths.current) void refreshGit(JSON.parse(latestGitPaths.current)); }
+  }
+  useEffect(() => { void refreshGit(); }, [gitPathsKey]);
+  async function openTerminal(module: ProjectModule) { try { await api.openProjectTerminal(module.id); } catch (e) { notify("error", errorMessage(e)); } }
 
   async function refresh(silent = false) {
     if (!silent) setLoading(true);
@@ -197,6 +218,7 @@ export default function MainApp() {
     .sort((a, b) => Number(b.module.lastOpenedAt ?? 0) - Number(a.module.lastOpenedAt ?? 0)), [visibleProjects]);
 
   return (
+    <GitContext.Provider value={{ statuses: gitStatuses, loading: gitLoading, refresh: () => void refreshGit(), terminal: openTerminal, notify }}>
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
@@ -270,7 +292,36 @@ export default function MainApp() {
       {confirm && <ConfirmModal {...confirm} onClose={() => setConfirm(null)} onConfirm={() => confirm.action().then((saved) => { if (saved) setConfirm(null); })} />}
       {toast && <div className={`toast ${toast.kind}`}>{toast.message}</div>}
     </div>
+    </GitContext.Provider>
   );
+}
+
+type GitContextValue = {
+  statuses: Record<string, import("./types").GitStatus>;
+  loading: boolean;
+  refresh: () => void;
+  terminal: (module: ProjectModule) => Promise<void>;
+  notify: (kind: "success" | "error", message: string) => void;
+};
+const GitContext = createContext<GitContextValue | null>(null);
+function ProjectTools({ module }: { module: ProjectModule }) {
+  const context = useContext(GitContext)!;
+  if (!module.path) return null;
+  const status = context.statuses[module.path.path];
+  async function action(work: () => Promise<unknown>, success?: string) {
+    try { await work(); if (success) context.notify("success", success); }
+    catch (error) { context.notify("error", errorMessage(error)); }
+  }
+  return <span className="project-tools" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+    <span className={`git-summary ${status?.error ? "git-error" : ""}`} title={status?.error ?? status?.branch ?? "Git 状态"}>
+      <GitBranch size={13} />
+      {context.loading ? "Git 查询中…" : status?.error ? status.error : status ? <><span>{status.detached ? "detached HEAD" : status.branch ?? "无分支"}</span>{status.changedFiles !== null && status.changedFiles > 0 && <span className="git-changes">· {status.changedFiles} 个改动</span>}</> : "Git 待查询"}
+    </span>
+    <button className="icon-button compact" title="刷新 Git 状态" aria-label="刷新 Git 状态" disabled={context.loading} onClick={context.refresh}><RefreshCw size={13} /></button>
+    {status?.branch && <button className="git-text-button" title="复制当前分支名称" onClick={() => void action(() => navigator.clipboard.writeText(status.branch!), "分支名称已复制")}>复制分支</button>}
+    {status?.remoteUrl && <button className="git-text-button" title="在浏览器打开远程仓库" onClick={() => void action(() => openUrl(status.remoteUrl!))}>仓库</button>}
+    <button className="git-text-button" title="打开项目终端" onClick={() => void context.terminal(module)}>打开终端</button>
+  </span>;
 }
 
 function NavItem({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
@@ -287,14 +338,14 @@ function ProjectCard({ project, compact, definitions, installations, onOpen, onL
       const ide = ideForModule(module.ideId, definitions);
       const installation = ide ? ideInstallation(ide, installations) : undefined;
       const ready = module.path?.validationStatus === "valid" && !!ide && !!installation && ["available", "installed"].includes(installation.status);
-      if (compact) return <article key={module.id} className={`compact-module-card type-${module.moduleType}`} role="button" tabIndex={0} aria-label={`打开项目 ${module.name}`} title={`打开${module.name}`} onClick={() => onLaunch(module)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); void onLaunch(module); } }}><strong title={module.name}>{module.name}</strong>{module.linkedModuleIds.length > 0 && <span className="linked-badge">联动 {module.linkedModuleIds.length}</span>}<button className="icon-button compact" title="编辑项目" aria-label={`编辑${module.name}`} onClick={(event) => { event.stopPropagation(); onEditModule(module); }}><Pencil size={13} /></button><ExternalLink size={15} className="compact-open-icon" aria-hidden="true" /></article>;
+      if (compact) return <article key={module.id} className={`compact-module-card type-${module.moduleType}`} role="button" tabIndex={0} aria-label={`打开项目 ${module.name}`} title={`打开${module.name}`} onClick={() => onLaunch(module)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); void onLaunch(module); } }}><strong title={module.name}>{module.name}</strong>{module.linkedModuleIds.length > 0 && <span className="linked-badge">联动 {module.linkedModuleIds.length}</span>}<button className="icon-button compact" title="编辑项目" aria-label={`编辑${module.name}`} onClick={(event) => { event.stopPropagation(); onEditModule(module); }}><Pencil size={13} /></button><ExternalLink size={15} className="compact-open-icon" aria-hidden="true" /><ProjectTools module={module} /></article>;
       return <article key={module.id} className="card-module-card" role="button" tabIndex={0} title={`用 ${ide?.name ?? "默认 IDE"} 打开`} onClick={() => onLaunch(module)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); void onLaunch(module); } }}>
         <div className="card-module-card-top"><span className={`module-icon ${moduleTypeTone[module.moduleType]}`}><FileCode2 size={19} /></span><span className={`type-badge ${moduleTypeTone[module.moduleType]}`}>{moduleTypeLabel[module.moduleType]}</span>{module.isFavorite && <Star size={13} fill="currentColor" />}{module.linkedModuleIds.length > 0 && <span className="linked-badge">联动 {module.linkedModuleIds.length}</span>}<button className="icon-button" title="编辑项目" onClick={(event) => { event.stopPropagation(); onEditModule(module); }}><Pencil size={14} /></button></div>
         <div className="card-module-title"><strong>{module.name}</strong></div>
         <span className="card-module-description">{module.description || "未填写项目说明"}</span>
         {module.tags.length > 0 && <div className="entity-tags compact">{module.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}
         <span className="card-module-path">{displayPath(module.path?.path ?? "")}</span>
-        <div className="card-module-card-footer"><span className={ready ? "status-dot ok" : "status-dot warning"}>{ready ? "可启动" : "需检查"}</span><span><Code2 size={13} />{ide?.name ?? "未指定 IDE"}</span><span className="card-open-hint"><ExternalLink size={14} />打开</span></div>
+        <ProjectTools module={module} /><div className="card-module-card-footer"><span className={ready ? "status-dot ok" : "status-dot warning"}>{ready ? "可启动" : "需检查"}</span><span><Code2 size={13} />{ide?.name ?? "未指定 IDE"}</span><span className="card-open-hint"><ExternalLink size={14} />打开</span></div>
       </article>;
     })}{!compact && project.modules.length === 0 && <div className="card-empty-modules"><FileCode2 size={22} /><span><strong>尚未添加项目</strong><small>使用标题栏中的“添加项目”开始配置。</small></span></div>}{compact && project.modules.length === 0 && <span className="compact-empty">尚未添加项目</span>}</div>
     {!compact && <footer className="card-footer"><span><Clock3 size={14} />最近打开 {relativeTime(project.lastOpenedAt)}</span></footer>}
@@ -308,7 +359,7 @@ function RecentProjectList({ items, definitions, installations, onLaunch, onEdit
     const ready = module.path?.validationStatus === "valid" && !!ide && !!installation && ["available", "installed"].includes(installation.status);
     return <article key={module.id} className="recent-project-row" role="button" tabIndex={0} onClick={() => onLaunch(module)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onLaunch(module); } }}>
       <span className={`module-icon ${moduleTypeTone[module.moduleType]}`}><FileCode2 size={21} /></span>
-      <div className="recent-project-main"><div className="module-name"><h3>{module.name}</h3><span className={`type-badge ${moduleTypeTone[module.moduleType]}`}>{moduleTypeLabel[module.moduleType]}</span>{module.isFavorite && <Star size={14} fill="currentColor" />}</div><p>{module.description || displayPath(module.path?.path ?? "")}</p>{module.tags.length > 0 && <div className="entity-tags compact">{module.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</div>
+      <div className="recent-project-main"><div className="module-name"><h3>{module.name}</h3><span className={`type-badge ${moduleTypeTone[module.moduleType]}`}>{moduleTypeLabel[module.moduleType]}</span>{module.isFavorite && <Star size={14} fill="currentColor" />}</div><p>{module.description || displayPath(module.path?.path ?? "")}</p><ProjectTools module={module} />{module.tags.length > 0 && <div className="entity-tags compact">{module.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</div>
       <div className="recent-project-context"><span>{project.name}</span><small><Clock3 size={13} />{relativeTime(module.lastOpenedAt)}</small></div>
       <span className={ready ? "status-dot ok" : "status-dot warning"}>{ready ? ide?.name : "需检查"}</span>
       <button className="icon-button" title="编辑项目" onClick={(event) => { event.stopPropagation(); onEdit(project, module); }}><Pencil size={15} /></button>
@@ -361,7 +412,7 @@ function ProjectDetail({ project, dashboard, onBack, onEditProject, onAddModule,
       return <article className={`module-row ${draggingId === module.id ? "dragging" : ""} ${dropPosition?.id === module.id ? dropPosition.after ? "drop-after" : "drop-before" : ""}`} data-module-id={module.id} key={module.id}>
         <span className="module-drag-handle" role="button" tabIndex={0} title={`拖动调整 ${module.name} 的顺序`} aria-label={`拖动调整 ${module.name} 的顺序，可用上下方向键移动`} onPointerDown={(event) => { if (event.button !== 0 || !event.isPrimary || sortingBusy) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); dragSource.current = { id: module.id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, started: false }; }} onPointerMove={(event) => { const source = dragSource.current; if (!source || source.pointerId !== event.pointerId) return; if (!source.started) { if (Math.hypot(event.clientX - source.startX, event.clientY - source.startY) < 5) return; source.started = true; setDraggingId(source.id); } const target = findDropPosition(event.clientX, event.clientY); setDropPosition(target?.id === source.id ? null : target); }} onPointerUp={(event) => { const source = dragSource.current; if (!source || source.pointerId !== event.pointerId) return; const target = source.started ? findDropPosition(event.clientX, event.clientY) : null; clearDrag(); if (target) void moveModule(source.id, target.id, target.after); }} onPointerCancel={clearDrag} onLostPointerCapture={clearDrag} onKeyDown={(event) => { const index = orderedIds.indexOf(module.id); if (event.key === "ArrowUp" && index > 0) { event.preventDefault(); void moveModule(module.id, orderedIds[index - 1], false); } else if (event.key === "ArrowDown" && index < orderedIds.length - 1) { event.preventDefault(); void moveModule(module.id, orderedIds[index + 1], true); } }}><GripVertical size={17} /></span>
         <div className={`module-icon ${moduleTypeTone[module.moduleType]}`}><FileCode2 size={22} /></div>
-        <div className="module-main"><div className="module-name"><h3>{module.name}</h3><span className={`type-badge ${moduleTypeTone[module.moduleType]}`}>{moduleTypeLabel[module.moduleType]}</span>{module.isFavorite && <Star size={14} fill="currentColor" />}</div>{module.tags.length > 0 && <div className="entity-tags compact">{module.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}<p className={invalid ? "path invalid" : "path"}>{displayPath(module.path?.path ?? "")}{invalid && <span> · 路径不存在</span>}</p><span className="module-meta">{ide?.name ?? "未指定 IDE"} · {relativeTime(module.lastOpenedAt)}{module.linkedModuleIds.length > 0 && ` · 联动 ${module.linkedModuleIds.length} 个项目`}</span></div>
+        <div className="module-main"><div className="module-name"><h3>{module.name}</h3><span className={`type-badge ${moduleTypeTone[module.moduleType]}`}>{moduleTypeLabel[module.moduleType]}</span>{module.isFavorite && <Star size={14} fill="currentColor" />}</div>{module.tags.length > 0 && <div className="entity-tags compact">{module.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}<p className={invalid ? "path invalid" : "path"}>{displayPath(module.path?.path ?? "")}{invalid && <span> · 路径不存在</span>}</p><span className="module-meta">{ide?.name ?? "未指定 IDE"} · {relativeTime(module.lastOpenedAt)}{module.linkedModuleIds.length > 0 && ` · 联动 ${module.linkedModuleIds.length} 个项目`}</span><ProjectTools module={module} /></div>
         <div className="module-actions">
           <button className="secondary-button small reveal-directory-button" onClick={() => onReveal(module)}><FolderOpen size={16} />打开目录</button>
           <button className="secondary-button small module-edit-action" title={`编辑 ${module.name}`} onClick={() => onEditModule(module)}><Pencil size={15} />编辑</button>

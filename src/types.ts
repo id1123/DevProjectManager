@@ -2,6 +2,8 @@ export type ModuleType = "api" | "web" | "app" | "other";
 export type PathKind = "file" | "directory";
 export type Platform = "windows" | "macos";
 
+export interface GitStatus { path: string; branch: string | null; changedFiles: number | null; remoteUrl: string | null; error: string | null; detached: boolean }
+
 export interface ProjectModule {
   id: string;
   projectId: string;

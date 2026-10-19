@@ -91,3 +91,17 @@ SQLite 数据库文件名为 `dev-project-manager.sqlite3`，保存在操作系�
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
+
+## Git 状态与项目终端
+
+主窗口的项目列表（详细、精简及最近打开）和业务项目详情支持显示当前分支、工作区改动文件数，并提供手动刷新、复制分支及打开远程仓库。文件项目（如 `.sln`）从所在目录识别仓库，支持仓库子目录和 Git worktree。同一工作区共用查询结果，不同 worktree 独立统计；暂存、未暂存和未跟踪文件按文件计数。首次加载后不轮询，外部修改后请手动刷新。
+
+需要本机已安装 Git 并可从 PATH 调用。查询在后台执行并设置超时与并发限制；Git 不可用、无效路径、非仓库或权限错误会显示在项目旁。空仓库显示初始分支，detached HEAD 显示分离状态。查询不执行 fetch、pull、push、commit，不修改仓库或 Git 全局配置。远程地址优先 origin，再尝试其他远程；常见 HTTPS/SSH 地址转换为浏览器 URL。
+
+“打开终端”以文件夹本身或项目文件所在目录为工作目录。Windows 优先 Windows Terminal，失败时回退 PowerShell；含分号路径直接使用 PowerShell，避免 Windows Terminal 将其解释为命令分隔符。macOS 使用系统 Terminal。只打开交互终端，不自动执行开发命令。终端使用当前路径，不依赖项目 IDE 是否可用。
+
+无需新增设置或数据库字段，现有配置导入导出格式保持兼容。
+
+本轮验证：`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml` 和 `cargo test --manifest-path src-tauri/Cargo.toml --lib`。Git 测试使用临时仓库，覆盖普通仓库、子目录、`.sln`、worktree、空仓库、detached HEAD、暂存/未暂存/未跟踪与重复计数、远程 origin 优先/回退、无效路径和非仓库、缺失 Git 可执行文件、超时及大输出。终端测试覆盖中文、空格、引号、`&`、分号路径的目录解析和 Windows PowerShell 子进程实际工作目录。现有配置、批处理 IDE 参数和数据库测试一起执行。
+
+桌面验收待办：Windows Terminal 和 PowerShell 的可见窗口及工作目录、复制分支和浏览器打开远程仓库、详细/精简/窄窗口布局、IDE/联动/快速启动/托盘操作回归；macOS Terminal 需要在 macOS 实机验证。自动化构建与测试不代表这些桌面操作已通过。

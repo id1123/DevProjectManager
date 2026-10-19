@@ -30,6 +30,8 @@ export const api = {
   exportConfig: (path: string) => invoke("export_config", { path }),
   importConfig: (path: string) => invoke("import_config", { path }),
   hideLauncher: () => invoke("hide_launcher_window"),
+  gitStatuses: (paths: string[]) => invoke<import("./types").GitStatus[]>("git_statuses", { paths }),
+  openProjectTerminal: (moduleId: string) => invoke("open_project_terminal", { moduleId }),
 };
 
 export function errorMessage(error: unknown) {

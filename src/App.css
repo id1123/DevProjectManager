@@ -15,6 +15,7 @@
   --primary-hover: #5749d7;
   --primary-soft: #eeecff;
   --danger: #cf4050;
+  --git-changes: #a65b08;
   --shadow: 0 16px 45px rgba(34, 31, 55, .09);
 }
 
@@ -30,6 +31,7 @@
   --primary-hover: #9b8df7;
   --primary-soft: #302c52;
   --danger: #f06a78;
+  --git-changes: #f3b65b;
   --shadow: 0 18px 55px rgba(0, 0, 0, .32);
   color-scheme: dark;
 }
@@ -47,6 +49,7 @@
     --primary-hover: #9b8df7;
     --primary-soft: #302c52;
     --danger: #f06a78;
+  --git-changes: #f3b65b;
     --shadow: 0 18px 55px rgba(0, 0, 0, .32);
     color-scheme: dark;
   }
@@ -459,3 +462,15 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+.project-tools { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; font-size: 11px; padding: 3px 0; }
+.git-summary { display: inline-flex; align-items: center; gap: 4px; max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; opacity: .75; }
+.git-error { max-width: 160px; }
+.git-text-button { font-size: 11px; color: inherit; background: transparent; border: 0; cursor: pointer; padding: 3px; opacity: .8; }
+.git-text-button:hover { opacity: 1; text-decoration: underline; }
+.compact-module-card { flex-wrap: wrap; }
+.compact-module-card > .project-tools { flex-basis: 100%; }
+.module-actions > .project-tools { max-width: 310px; }
+@media (max-width: 900px) { .module-actions > .project-tools { flex-basis: 100%; max-width: 100%; } }
+
+.git-changes { color: var(--git-changes); font-weight: 600; flex-shrink: 0; }
