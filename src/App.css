@@ -474,3 +474,47 @@ details summary:focus-visible { outline: 2px solid var(--primary); outline-offse
 @media (max-width: 900px) { .module-actions > .project-tools { flex-basis: 100%; max-width: 100%; } }
 
 .git-changes { color: var(--git-changes); font-weight: 600; flex-shrink: 0; }
+
+/* Local path maintenance and work group panels */
+.workspace-backdrop { z-index: 150; }
+.workspace-dialog { width: min(940px, calc(100vw - 36px)); max-height: calc(100vh - 36px); display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); outline: none; }
+.workspace-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 22px 26px 16px; border-bottom: 1px solid var(--line); }
+.workspace-dialog h2 { margin: 3px 0 0; font-size: 22px; }
+.workspace-dialog h3 { font-size: 14px; margin: 8px 0; }
+.workspace-body { overflow: auto; padding: 18px 26px 24px; }
+.workspace-hint { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.workspace-toolbar, .workspace-actions, .workspace-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.workspace-toolbar { margin: 12px 0; }
+.workspace-toolbar label, .prefix-form label, .group-add label, .workspace-field { display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
+.workspace-body input:not([type="checkbox"]), .workspace-body select { min-width: 0; width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.workspace-toolbar select { min-width: 185px; max-width: 100%; }
+.workspace-section { background: var(--panel-muted); border: 1px solid var(--line); border-radius: 12px; padding: 15px; margin: 16px 0; }
+.prefix-form, .group-add { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.prefix-form label, .group-add label:nth-child(2) { flex: 1; min-width: 160px; }
+.workspace-rows { display: flex; flex-direction: column; gap: 8px; }
+.workspace-row { display: flex; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 9px; }
+.workspace-row-copy { flex: 1; min-width: 0; }
+.workspace-row strong, .path-preview strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.workspace-row small, .path-preview small { display: block; margin: 5px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.workspace-error { color: var(--danger) !important; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.workspace-ok { color: var(--primary) !important; font-size: 12px; }
+.workspace-notice { padding: 10px 12px; background: var(--primary-soft); color: var(--text); font-size: 12px; border-radius: 8px; }
+.workspace-empty { text-align: center; padding: 28px; color: var(--muted); font-size: 13px; }
+.workspace-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; font-size: 12px; }
+.path-preview { display: flex; align-items: start; gap: 10px; border-bottom: 1px solid var(--line); padding: 10px 0; }
+.path-preview > div { min-width: 0; }
+.workspace-footer { justify-content: space-between; margin-top: 16px; font-size: 12px; }
+.group-add { margin-top: 16px; }
+.project-workspace-tools { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
+@media (max-width: 700px) { .workspace-body { padding: 14px; } .workspace-row { align-items: flex-start; flex-wrap: wrap; } .workspace-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); } }
+
+/* Align the scope controls independently of the label above the select. */
+.workspace-scope-toolbar { align-items: flex-end; gap: 12px; margin: 16px 0; }
+.workspace-scope-toolbar > label { width: 220px; max-width: 100%; flex: 0 1 220px; }
+.workspace-scope-toolbar select { min-width: 0; height: 40px; }
+.workspace-scope-toolbar > button { height: 40px; flex-shrink: 0; }
+.workspace-scope-summary { display: inline-flex; align-items: center; min-height: 40px; }
+@media (max-width: 520px) {
+  .workspace-scope-toolbar > label { flex: 1 1 180px; }
+  .workspace-scope-summary { flex-basis: 100%; min-height: 20px; }
+}

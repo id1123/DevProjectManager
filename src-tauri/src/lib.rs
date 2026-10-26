@@ -3,6 +3,7 @@ mod git;
 mod models;
 mod repository;
 mod services;
+mod workspace;
 
 use database::AppState;
 use models::*;
@@ -76,6 +77,16 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
         })
         .unwrap_or_default();
 
+    let groups = app
+        .try_state::<AppState>()
+        .and_then(|state| {
+            state
+                .db
+                .lock()
+                .ok()
+                .and_then(|db| workspace::list_groups(&db).ok())
+        })
+        .unwrap_or_default();
     let recent = {
         let mut modules = projects
             .iter()
@@ -144,6 +155,15 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Str
                     MenuItemBuilder::with_id(format!("{TRAY_PROJECT_PREFIX}{}", module.id), label)
                         .build(app)
                         .map_err(|e| e.to_string())?;
+                submenu = submenu.item(&item);
+            }
+            for group in groups.iter().filter(|g| g.project_id == project.id) {
+                let item = MenuItemBuilder::with_id(
+                    format!("tray-group-{}", group.id),
+                    format!("组合 · {}…", group.name),
+                )
+                .build(app)
+                .map_err(|e| e.to_string())?;
                 submenu = submenu.item(&item);
             }
             let submenu = submenu.build().map_err(|e| e.to_string())?;
@@ -359,6 +379,139 @@ fn import_config(
     Ok(result)
 }
 
+/// Run filesystem checks away from the desktop event loop.
+async fn workspace_read<T: Send + 'static>(
+    app: AppHandle,
+    operation: impl FnOnce(&mut rusqlite::Connection) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || with_db(&app.state::<AppState>(), operation))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Check all configured paths without changing them.
+#[tauri::command]
+async fn inspect_paths(
+    project_id: Option<String>,
+    app: AppHandle,
+) -> Result<Vec<workspace::PathRow>, String> {
+    workspace_read(app, move |db| {
+        workspace::inspect_paths(db, project_id.as_deref())
+    })
+    .await
+}
+/// Preview a directory-prefix replacement.
+#[tauri::command]
+async fn prefix_paths(
+    project_id: Option<String>,
+    old_prefix: String,
+    new_prefix: String,
+    app: AppHandle,
+) -> Result<Vec<workspace::PathRow>, String> {
+    workspace_read(app, move |db| {
+        workspace::prefix_paths(db, project_id.as_deref(), &old_prefix, &new_prefix)
+    })
+    .await
+}
+/// Check individually relocated paths before saving.
+#[tauri::command]
+async fn preview_paths(
+    changes: Vec<workspace::PathChange>,
+    app: AppHandle,
+) -> Result<Vec<workspace::PathRow>, String> {
+    workspace_read(app, move |db| workspace::preview_paths(db, &changes)).await
+}
+/// Commit selected repairs as one transaction and refresh all entry points.
+#[tauri::command]
+async fn apply_paths(changes: Vec<workspace::PathChange>, app: AppHandle) -> Result<(), String> {
+    workspace_read(app.clone(), move |db| workspace::apply_paths(db, &changes)).await?;
+    refresh_tray_menu(&app);
+    let _ = app.emit(PROJECT_LAUNCHED_EVENT, ());
+    Ok(())
+}
+/// Return saved work groups for management and search.
+#[tauri::command]
+fn list_work_groups(state: State<AppState>) -> Result<Vec<workspace::WorkGroup>, String> {
+    with_db(&state, |db| workspace::list_groups(db))
+}
+/// Save a work group and update tray entries.
+#[tauri::command]
+fn save_work_group(
+    group: workspace::WorkGroup,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<workspace::WorkGroup, String> {
+    let saved = with_db(&state, |db| workspace::save_group(db, group))?;
+    refresh_tray_menu(&app);
+    let _ = app.emit("workspace://changed", ());
+    Ok(saved)
+}
+/// Delete a work group without touching project files.
+#[tauri::command]
+fn delete_work_group(id: String, app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    with_db(&state, |db| {
+        db.execute("DELETE FROM work_groups WHERE id=?1", [id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })?;
+    refresh_tray_menu(&app);
+    let _ = app.emit("workspace://changed", ());
+    Ok(())
+}
+/// Check a group before the user submits its launch.
+#[tauri::command]
+async fn check_work_group(
+    id: String,
+    app: AppHandle,
+) -> Result<Vec<workspace::ItemResult>, String> {
+    workspace_read(app, move |db| workspace::check_group(db, &id)).await
+}
+/// Run a group in the background with cross-window duplicate suppression.
+#[tauri::command]
+async fn run_work_group(
+    id: String,
+    expected_items: Vec<workspace::GroupItem>,
+    indices: Option<Vec<usize>>,
+    skip_invalid: bool,
+    app: AppHandle,
+) -> Result<Vec<workspace::ItemResult>, String> {
+    static RUNNING: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut last = RUNNING
+            .try_lock()
+            .map_err(|_| "工作组合正在启动，请稍候".to_string())?;
+        if last.is_some_and(|time| time.elapsed() < std::time::Duration::from_secs(2)) {
+            return Err("刚刚已提交组合启动，请稍候重试".into());
+        }
+        let state = app.state::<AppState>();
+        let result = with_db(&state, |db| {
+            workspace::run_group_snapshot(db, &id, &expected_items, indices, skip_invalid)
+        });
+        if result.is_ok() {
+            *last = Some(std::time::Instant::now());
+        }
+        refresh_tray_menu(&app);
+        let _ = app.emit(PROJECT_LAUNCHED_EVENT, ());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// Open path maintenance from a failed quick launch.
+#[tauri::command]
+fn show_path_maintenance(project_id: String, app: AppHandle) -> Result<(), String> {
+    show_main_window(&app);
+    app.emit_to("main", "workspace://repair-path", project_id)
+        .map_err(|e| e.to_string())
+}
+/// Bring the group preflight panel to the main window from tray or launcher.
+#[tauri::command]
+fn show_work_group(id: String, app: AppHandle) -> Result<(), String> {
+    show_main_window(&app);
+    app.emit_to("main", "workspace://open-group", id)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -400,6 +553,8 @@ pub fn run() {
                 show_main_window(app);
             } else if id == TRAY_QUIT {
                 app.exit(0);
+            } else if let Some(group_id) = id.strip_prefix("tray-group-") {
+                let _ = show_work_group(group_id.to_string(), app.clone());
             } else if let Some(module_id) = id
                 .strip_prefix(TRAY_RECENT_PREFIX)
                 .or_else(|| id.strip_prefix(TRAY_PROJECT_PREFIX))
@@ -460,6 +615,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            show_path_maintenance,
+            inspect_paths,
+            prefix_paths,
+            preview_paths,
+            apply_paths,
+            list_work_groups,
+            save_work_group,
+            delete_work_group,
+            check_work_group,
+            run_work_group,
+            show_work_group,
             get_dashboard,
             list_projects,
             get_project,

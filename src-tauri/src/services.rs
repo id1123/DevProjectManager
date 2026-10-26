@@ -424,7 +424,7 @@ pub fn launch_module(
     Ok(result)
 }
 
-fn launch_single_module(
+pub(crate) fn launch_single_module(
     db: &Connection,
     project: &Project,
     module: &ProjectModule,

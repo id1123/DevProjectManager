@@ -122,7 +122,7 @@ impl AppState {
     }
 }
 
-fn migrate(db: &Connection) -> Result<(), String> {
+pub(crate) fn migrate(db: &Connection) -> Result<(), String> {
     db.execute_batch(r#"
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
@@ -230,6 +230,7 @@ fn migrate(db: &Connection) -> Result<(), String> {
     }
     db.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (5, strftime('%s','now'))", [])
         .map_err(|e| format!("记录数据库迁移失败: {e}"))?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS work_groups (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, name TEXT NOT NULL, items TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_work_groups_project ON work_groups(project_id); INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(6,strftime('%s','now'));").map_err(|e|format!("升级工作组合失败：{e}"))?;
     Ok(())
 }
 

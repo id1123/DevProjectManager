@@ -1,14 +1,15 @@
+import { GroupRunner, PathMaintenance, WorkGroupsPanel } from "./WorkspacePanels";
+import type { WorkGroup } from "./types";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import {
-  ArchiveRestore,
   Boxes,
   ChevronLeft,
   ChevronRight,
@@ -20,7 +21,6 @@ import {
   FileCode2,
   FolderOpen,
   GripVertical,
-  Import,
   Laptop,
   LayoutGrid,
   MoreHorizontal,
@@ -95,6 +95,11 @@ export default function MainApp() {
   const [compactMode, setCompactMode] = useState(() => window.localStorage.getItem("project-hub:list-density") !== "detailed");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [pathScope, setPathScope] = useState<string | null>(null);
+  const [groupScope, setGroupScope] = useState<string | null>(null);
+  const [groupEditId, setGroupEditId] = useState<string | undefined>();
+  const [groups, setGroups] = useState<WorkGroup[]>([]);
+  const [runningGroupId, setRunningGroupId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [projectEditor, setProjectEditor] = useState<Project | "new" | null>(null);
   const [moduleEditor, setModuleEditor] = useState<{ project: Project; module?: ProjectModule } | null>(null);
@@ -104,6 +109,14 @@ export default function MainApp() {
   const [gitStatuses, setGitStatuses] = useState<Record<string, import("./types").GitStatus>>({});
   const [gitLoading, setGitLoading] = useState(false);
 
+  useEffect(() => {
+    const repair = getCurrentWindow().listen<string>("workspace://repair-path", event => setPathScope(event.payload));
+    const changed = getCurrentWindow().listen("workspace://changed", () => { void refresh(true); });
+    const openGroup = getCurrentWindow().listen<string>("workspace://open-group", event => {
+      void api.workGroups().then(rows => { setGroups(rows); if (rows.some(g => g.id === event.payload)) setRunningGroupId(event.payload); else notify("error", "工作组合已删除"); }).catch(e => notify("error", errorMessage(e)));
+    });
+    return () => { void repair.then(f => f()); void changed.then(f => f()); void openGroup.then(f => f()); };
+  }, []);
   const selectedProject = dashboard.projects.find((project) => project.id === selectedProjectId);
 
   const gitPathsKey = JSON.stringify([...new Set(dashboard.projects.flatMap(p => p.modules).map(m => m.path?.path).filter((p): p is string => !!p))].sort());
@@ -126,7 +139,9 @@ export default function MainApp() {
   async function refresh(silent = false) {
     if (!silent) setLoading(true);
     try {
-      setDashboard(normalizeDashboard(await api.dashboard()));
+      const [data, workGroups] = await Promise.all([api.dashboard(), api.workGroups()]);
+      setDashboard(normalizeDashboard(data));
+      setGroups(workGroups);
     } catch (error) {
       notify("error", errorMessage(error));
     } finally {
@@ -183,7 +198,11 @@ export default function MainApp() {
   }
 
   async function launch(module: ProjectModule, ideId?: string) {
-    await run(() => api.launchModule(module.id, ideId), `正在用 ${ideForModule(ideId ?? module.ideId, dashboard.ideDefinitions)?.name ?? "指定 IDE"} 打开`);
+    const opened = await run(() => api.launchModule(module.id, ideId), `正在用 ${ideForModule(ideId ?? module.ideId, dashboard.ideDefinitions)?.name ?? "指定 IDE"} 打开`);
+    if (!opened) {
+      const rows = await api.inspectPaths(module.projectId).catch(() => []);
+      if (rows.some(row => row.change.moduleId === module.id && row.status !== "valid")) setPathScope(module.projectId);
+    }
   }
 
   const allTags = useMemo(() => [...new Set(dashboard.projects.flatMap((project) => [...project.tags, ...project.modules.flatMap((module) => module.tags)]))].sort((a, b) => a.localeCompare(b, "zh-CN")), [dashboard.projects]);
@@ -229,14 +248,14 @@ export default function MainApp() {
           <NavItem active={view === "all" && !selectedProject} icon={<LayoutGrid />} label="全部项目" onClick={() => { setSelectedProjectId(null); setView("all"); }} />
           <NavItem active={view === "recent" && !selectedProject} icon={<Clock3 />} label="最近打开" onClick={() => { setSelectedProjectId(null); setView("recent"); }} />
         </nav>
-        <div className="sidebar-tools"><button title="设置" onClick={() => { setSettingsTab("general"); setSettingsOpen(true); }}><Settings size={17} /><span>设置</span></button></div>
+        <div className="sidebar-tools"><button onClick={() => setPathScope("")}><FolderOpen size={17} /><span>路径维护</span></button><button onClick={() => setGroupScope("")}><Boxes size={17} /><span>工作组合</span></button><button title="设置" onClick={() => { setSettingsTab("general"); setSettingsOpen(true); }}><Settings size={17} /><span>设置</span></button></div>
       </aside>
 
       <main className="main-content">
         {loading ? (
           <div className="center-state"><span className="spinner" /><p>正在加载本地配置…</p></div>
         ) : selectedProject ? (
-          <ProjectDetail
+          <><div className="project-workspace-tools"><button className="secondary-button small" onClick={() => setPathScope(selectedProject.id)}><FolderOpen size={16} />路径维护</button><button className="secondary-button small" onClick={() => setGroupScope(selectedProject.id)}><Boxes size={16} />工作组合 · {groups.filter(g => g.projectId === selectedProject.id).length}</button></div><ProjectDetail
             project={selectedProject}
             dashboard={dashboard}
             onBack={() => setSelectedProjectId(null)}
@@ -251,7 +270,7 @@ export default function MainApp() {
               action: () => run(() => api.deleteModule(module.id), "项目配置已删除"),
             })}
             onReorder={(moduleIds) => run(() => api.reorderModules(selectedProject.id, moduleIds), "项目顺序已更新")}
-          />
+          /></>
         ) : (
           <>
             <header className="page-header">
@@ -286,10 +305,13 @@ export default function MainApp() {
       {moduleEditor && <ModuleModal project={moduleEditor.project} module={moduleEditor.module} definitions={dashboard.ideDefinitions} installations={dashboard.ideInstallations} defaultIdeIds={dashboard.settings.defaultIdeIds} tagSuggestions={allTags} onClose={() => setModuleEditor(null)} onSave={(input) => run(() => api.saveModule(input), input.id ? "项目已更新" : "项目已添加").then((saved) => { if (saved) setModuleEditor(null); })} />}
       {settingsOpen && <Modal title="设置" subtitle="调整外观、快捷键、IDE 和本地配置。" onClose={() => setSettingsOpen(false)} wide>
         <div className="settings-tabs" role="tablist" aria-label="设置分类"><button role="tab" aria-selected={settingsTab === "general"} className={settingsTab === "general" ? "active" : ""} onClick={() => setSettingsTab("general")}><Settings size={16} />常规设置</button><button role="tab" aria-selected={settingsTab === "ides"} className={settingsTab === "ides" ? "active" : ""} onClick={() => setSettingsTab("ides")}><Laptop size={16} />IDE 管理</button></div>
-        <div style={{ display: settingsTab === "general" ? undefined : "none" }}><SettingsPage settings={dashboard.settings} ideDefinitions={dashboard.ideDefinitions} onSave={async (settings) => { const saved = await run(async () => { if (settings.globalShortcut !== dashboard.settings.globalShortcut) await api.setGlobalShortcut(settings.globalShortcut); await api.saveSettings(settings); }, "设置已保存"); if (saved) setSettingsOpen(false); }} onImport={async () => { const path = await open({ multiple: false, directory: false, filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (typeof path === "string") await run(() => api.importConfig(path), "配置已导入，失效路径已保留并标记"); }} onExport={async () => { const path = await save({ defaultPath: "project-hub-config.json", filters: [{ name: "Project Hub 配置", extensions: ["json"] }] }); if (path) await run(() => api.exportConfig(path), "配置已导出"); }} /></div>
+        <div style={{ display: settingsTab === "general" ? undefined : "none" }}><SettingsPage settings={dashboard.settings} ideDefinitions={dashboard.ideDefinitions} onSave={async (settings) => { const saved = await run(async () => { if (settings.globalShortcut !== dashboard.settings.globalShortcut) await api.setGlobalShortcut(settings.globalShortcut); await api.saveSettings(settings); }, "设置已保存"); if (saved) setSettingsOpen(false); }} /></div>
         <div style={{ display: settingsTab === "ides" ? undefined : "none" }}><IdeManager dashboard={dashboard} onRefresh={() => run(api.detectIdes, "IDE 检测完成")} onSave={(definition, installation) => run(async () => { const saved = await api.saveIdeDefinition(definition); await api.saveIde({ ...installation, ideId: saved.id }); }, definition.id ? "IDE 配置已保存" : "自定义 IDE 已添加")} onDelete={(ide) => setConfirm({ title: `删除“${ide.name}”？`, body: "将删除这个 IDE 的启动配置，已选择它的项目会保留，但需要重新指定启动应用。", action: () => run(() => api.deleteIdeDefinition(ide.id), "自定义 IDE 已删除") })} /></div>
       </Modal>}
       {confirm && <ConfirmModal {...confirm} onClose={() => setConfirm(null)} onConfirm={() => confirm.action().then((saved) => { if (saved) setConfirm(null); })} />}
+      {groupScope !== null && <WorkGroupsPanel projects={dashboard.projects} groups={groups} initialProjectId={groupScope} initialGroupId={groupEditId} onChanged={() => refresh(true)} onRun={setRunningGroupId} onClose={() => { setGroupScope(null); setGroupEditId(undefined); }} />}
+      {pathScope !== null && <PathMaintenance projects={dashboard.projects} initialProjectId={pathScope} onChanged={() => refresh(true)} onClose={() => setPathScope(null)} />}
+      {runningGroupId && groups.find(g => g.id === runningGroupId) && <GroupRunner key={runningGroupId} group={groups.find(g => g.id === runningGroupId)!} onClose={() => setRunningGroupId(null)} onRepair={() => { setPathScope(groups.find(g => g.id === runningGroupId)!.projectId); setRunningGroupId(null); }} onEdit={() => { setGroupEditId(runningGroupId); setGroupScope(groups.find(g => g.id === runningGroupId)!.projectId); setRunningGroupId(null); }} />}
       {toast && <div className={`toast ${toast.kind}`}>{toast.message}</div>}
     </div>
     </GitContext.Provider>
@@ -463,7 +485,7 @@ function IdeEditor({ ide, installation, onClose, onSave }: { ide?: IdeDefinition
   return <Modal title={ide ? `配置 ${ide.name}` : "添加自定义 IDE"} subtitle="命令模式会从系统 PATH 查找程序；参数模板中的 {path} 会替换为项目路径。" onClose={onClose} wide nested><form className="form-stack" onSubmit={submit}><label>显示名称<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="输入 IDE 名称" /></label><label>启动方式<select value={launchKind} onChange={(event) => setLaunchKind(event.target.value)}><option value="command">系统命令（推荐）</option><option value="executable">可执行文件</option>{currentPlatform() === "macos" && <option value="macosApp">macOS 应用</option>}</select></label><label>{launchKind === "command" ? "启动命令" : "程序位置"}<div className="path-picker"><input required value={command} onChange={(event) => setCommand(event.target.value)} placeholder={launchKind === "command" ? "输入系统命令" : "选择程序文件"} />{launchKind !== "command" && <button type="button" className="secondary-button" onClick={pickExecutable}><FolderOpen size={17} />选择</button>}</div><small className="field-help">命令模式可直接填写 code、idea 等已加入 PATH 的命令，无需填写完整安装路径。</small></label><label>默认参数模板<textarea value={argumentsText} onChange={(event) => setArgumentsText(event.target.value)} placeholder="{path}" /><small className="field-help">每行一个参数，使用 {"{path}"} 表示项目路径。</small></label><div className="path-kind-options"><span>支持的路径</span><label><input type="checkbox" checked={supportsFile} onChange={(event) => setSupportsFile(event.target.checked)} />项目文件</label><label><input type="checkbox" checked={supportsDirectory} onChange={(event) => setSupportsDirectory(event.target.checked)} />项目文件夹</label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={saving || !name.trim() || !command.trim() || (!supportsFile && !supportsDirectory)}>{saving ? "正在保存…" : ide ? "保存配置" : "添加 IDE"}</button></div></form></Modal>;
 }
 
-function SettingsPage({ settings, ideDefinitions, onSave, onImport, onExport }: { settings: AppSettings; ideDefinitions: IdeDefinition[]; onSave: (settings: AppSettings) => void; onImport: () => void; onExport: () => void }) {
+function SettingsPage({ settings, ideDefinitions, onSave }: { settings: AppSettings; ideDefinitions: IdeDefinition[]; onSave: (settings: AppSettings) => void }) {
   const [draft, setDraft] = useState(settings);
   const [appVersion, setAppVersion] = useState("-");
   const [availableUpdate, setAvailableUpdate] = useState<Awaited<ReturnType<typeof check>>>(null);
@@ -542,7 +564,7 @@ function SettingsPage({ settings, ideDefinitions, onSave, onImport, onExport }: 
     }
   }
 
-  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card default-ide-settings"><div className="settings-title"><div><h2>项目类型默认应用</h2><p>每种类型选择一个默认应用；新建项目时会预选，也可以在项目中更改。</p></div></div><div className="default-ide-grid">{defaultTypes.map(({ type, label, pathKind }) => <label key={type}>{label}<select value={draft.defaultIdeIds[type] ?? ""} onChange={(event) => setDefaultIde(type, event.target.value)}><option value="">不设置</option>{ideDefinitions.filter((ide) => ide.supportedPlatforms.includes(currentPlatform()) && supportsPath(ide, pathKind)).map((ide) => <option value={ide.id} key={ide.id}>{ide.name}</option>)}</select></label>)}</div></section><section className="settings-card"><div className="settings-title"><div><h2>开机启动</h2><p>登录系统后自动运行 Project Hub。</p></div></div><label className="autostart-option"><input type="checkbox" checked={autostartEnabled} disabled={autostartBusy} onChange={(event) => void setAutostart(event.target.checked)} /><span>开机自启</span></label>{autostartError && <p className="setting-error" role="alert">{autostartError}</p>}</section><section className="settings-card"><div className="settings-title"><div><h2>软件更新</h2><p>当前版本 {appVersion}，更新包从 GitHub Releases 获取并校验签名。</p></div></div><div className="update-row"><div><strong>{updateStatus}</strong>{updateProgress !== null && <div className="update-progress"><i style={{ width: `${updateProgress}%` }} /></div>}</div>{availableUpdate ? <button className="primary-button" disabled={updateBusy} onClick={() => void installUpdate()}><Download size={17} />{updateBusy ? `下载中${updateProgress !== null ? ` ${updateProgress}%` : "…"}` : `更新到 ${availableUpdate.version}`}</button> : <button className="secondary-button" disabled={updateBusy} onClick={() => void checkForUpdate()}><RefreshCw size={17} />{updateBusy ? "检查中…" : "检查更新"}</button>}</div></section><section className="settings-card"><div className="settings-title"><div><h2>配置备份</h2><p>JSON 文件包含项目结构和平台配置，不包含任何真实代码文件。</p></div></div><div className="backup-actions"><button className="secondary-button" onClick={onImport}><Import size={17} />导入配置</button><button className="secondary-button" onClick={onExport}><ArchiveRestore size={17} />导出配置</button></div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
+  return <div className="settings-stack"><section className="settings-card"><div className="settings-title"><div><h2>外观</h2><p>选择适合当前工作环境的主题。</p></div></div><div className="theme-options"><ThemeOption active={draft.theme === "system"} icon={<Laptop />} label="跟随系统" onClick={() => setDraft({ ...draft, theme: "system" })} /><ThemeOption active={draft.theme === "light"} icon={<Sun />} label="浅色" onClick={() => setDraft({ ...draft, theme: "light" })} /><ThemeOption active={draft.theme === "dark"} icon={<Moon />} label="深色" onClick={() => setDraft({ ...draft, theme: "dark" })} /></div></section><section className="settings-card"><div className="settings-title"><div><h2>快速启动</h2><p>该快捷键在应用后台运行时也可以唤起搜索窗口。</p></div></div><label className="setting-field"><span>全局快捷键</span><input value={draft.globalShortcut} onChange={(event) => setDraft({ ...draft, globalShortcut: event.target.value })} placeholder="CommandOrControl+Shift+P" /></label></section><section className="settings-card default-ide-settings"><div className="settings-title"><div><h2>项目类型默认应用</h2><p>每种类型选择一个默认应用；新建项目时会预选，也可以在项目中更改。</p></div></div><div className="default-ide-grid">{defaultTypes.map(({ type, label, pathKind }) => <label key={type}>{label}<select value={draft.defaultIdeIds[type] ?? ""} onChange={(event) => setDefaultIde(type, event.target.value)}><option value="">不设置</option>{ideDefinitions.filter((ide) => ide.supportedPlatforms.includes(currentPlatform()) && supportsPath(ide, pathKind)).map((ide) => <option value={ide.id} key={ide.id}>{ide.name}</option>)}</select></label>)}</div></section><section className="settings-card"><div className="settings-title"><div><h2>开机启动</h2><p>登录系统后自动运行 Project Hub。</p></div></div><label className="autostart-option"><input type="checkbox" checked={autostartEnabled} disabled={autostartBusy} onChange={(event) => void setAutostart(event.target.checked)} /><span>开机自启</span></label>{autostartError && <p className="setting-error" role="alert">{autostartError}</p>}</section><section className="settings-card"><div className="settings-title"><div><h2>软件更新</h2><p>当前版本 {appVersion}，更新包从 GitHub Releases 获取并校验签名。</p></div></div><div className="update-row"><div><strong>{updateStatus}</strong>{updateProgress !== null && <div className="update-progress"><i style={{ width: `${updateProgress}%` }} /></div>}</div>{availableUpdate ? <button className="primary-button" disabled={updateBusy} onClick={() => void installUpdate()}><Download size={17} />{updateBusy ? `下载中${updateProgress !== null ? ` ${updateProgress}%` : "…"}` : `更新到 ${availableUpdate.version}`}</button> : <button className="secondary-button" disabled={updateBusy} onClick={() => void checkForUpdate()}><RefreshCw size={17} />{updateBusy ? "检查中…" : "检查更新"}</button>}</div></section><div className="save-row"><button className="primary-button" onClick={() => onSave(draft)}>保存设置</button></div></div>;
 }
 
 function ThemeOption({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button className={`theme-option ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span></button>; }

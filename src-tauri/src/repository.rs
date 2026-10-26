@@ -315,12 +315,20 @@ pub fn list_projects(db: &Connection) -> Result<Vec<Project>, String> {
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    bare.into_iter()
+    let mut modules = std::collections::HashMap::<String, Vec<ProjectModule>>::new();
+    for module in list_modules_query(db, "", [])? {
+        modules
+            .entry(module.project_id.clone())
+            .or_default()
+            .push(module);
+    }
+    Ok(bare
+        .into_iter()
         .map(|mut p| {
-            p.modules = list_modules_for_project(db, &p.id)?;
-            Ok(p)
+            p.modules = modules.remove(&p.id).unwrap_or_default();
+            p
         })
-        .collect()
+        .collect())
 }
 
 fn get_module(db: &Connection, id: &str) -> Result<Option<ProjectModule>, String> {

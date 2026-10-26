@@ -128,7 +128,14 @@ export interface SaveIdeDefinitionInput {
 }
 
 export interface LauncherItem {
+  groupId?: string;
   project: Project;
   module: ProjectModule;
   ide?: IdeDefinition;
 }
+
+export interface PathChange { moduleId: string; oldPath: string | null; pathKind: PathKind; newPath: string }
+export interface PathRow { change: PathChange; projectId: string; projectName: string; moduleName: string; status: string; message: string }
+export interface GroupItem { kind: "module" | "terminal" | "folder" | "url"; target: string }
+export interface WorkGroup { id: string; projectId: string; name: string; items: GroupItem[] }
+export interface GroupResult { index: number; label: string; status: "ready" | "invalid" | "started" | "failed" | "skipped"; message: string }
