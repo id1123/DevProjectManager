@@ -1,5 +1,6 @@
 mod database;
 mod git;
+mod launcher;
 mod models;
 mod repository;
 mod services;
@@ -30,8 +31,12 @@ fn with_db<T>(
         .map_err(|_| "本地配置数据库正被占用".to_string())?;
     operation(&mut db)
 }
+/// Position the launcher on the active screen before showing and focusing it.
 fn show_launcher(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("launcher") {
+        if let Err(error) = launcher::position_on_active_monitor(&window) {
+            eprintln!("快速启动窗口定位失败：{error}");
+        }
         let _ = window.show();
         let _ = window.set_always_on_top(true);
         let _ = window.set_focus();
@@ -540,7 +545,8 @@ pub fn run() {
                 .build(),
         )
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            // Keep both persistent windows alive so shortcuts can show them again.
+            if matches!(window.label(), "main" | "launcher") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
